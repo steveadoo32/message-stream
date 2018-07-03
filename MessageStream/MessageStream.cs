@@ -300,6 +300,9 @@ namespace MessageStream
                     writeException = ex;
                     writeCancellationTokenSource.Cancel();
                 }
+
+                // Only complete the reader if there was an error writing.
+                // We do this so when we close the stream we can flush the rest of the bytes in the write pipe to the IWriter.
                 writePipe.Reader.Complete();
             }
             
