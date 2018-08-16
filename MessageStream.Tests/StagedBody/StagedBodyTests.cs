@@ -11,7 +11,7 @@ namespace MessageStream.Tests.StagedBody
     public class StagedBodyTests
     {
         
-        [Fact(DisplayName = "Tests reading a simple stream of bytes")]
+        [Fact(DisplayName = "Staged Deserializer Read")]
         public async Task TestStagedStreamAsync()
         {
             var readStream = new MemoryStream();

@@ -26,7 +26,9 @@ namespace MessageStream.Serializer
         /// <summary>
         /// Deserializes the buffer onto a message.
         /// There is a bug currently if you declare your implementations like this:
-        /// void IMessageBodyDeserializer<typeparamref name="TIdentifier"/>
+        /// <para>
+        /// void IMessageBodyDeserializer<typeparamref name="TIdentifier"/>.DeserializeOnto
+        /// </para>
         /// </summary>
         /// <param name="buffer">The buffer with data to deserialize</param>
         /// <param name="state">The state that determined what message type this was. Generally the message header</param>

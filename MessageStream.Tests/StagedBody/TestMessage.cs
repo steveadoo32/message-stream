@@ -17,7 +17,7 @@ namespace MessageStream.Tests.StagedBody
 
     }
 
-    public class TestMessageDeserializer : IStagedBodyMessageBodyDeserializer<TestMessage>
+    public class TestMessageDeserializer : StagedBodyMessageDeserializer.IStagedBodyMessageBodyDeserializer<TestMessage>
     {
 
         public int Identifier => TestMessage.MessageId;

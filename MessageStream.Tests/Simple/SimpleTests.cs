@@ -10,7 +10,7 @@ namespace MessageStream.Tests.Simple
     public class SimpleTests
     {
         
-        [Fact(DisplayName = "Tests reading a simple stream of bytes")]
+        [Fact(DisplayName = "Simple Deserializer Read")]
         public async Task TestSimpleStreamAsync()
         {
             var readStream = new MemoryStream();

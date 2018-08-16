@@ -9,6 +9,5 @@ namespace MessageStream.Tests.StagedBody
 
         StagedBodyMessageHeader Header { get; set; }
 
-
     }
 }
