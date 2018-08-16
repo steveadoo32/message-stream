@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace MessageStream.Tests.StagedBody
+namespace MessageStream.Benchmark.StagedBody
 {
     public interface IStagedBodyMessage
     {

@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Text;
 
-namespace MessageStream.Serializer
+namespace MessageStream.Message
 {
     public class PooledMessageProvider<TIdentifier, TMessage> : IMessageProvider<TIdentifier, TMessage>
     {

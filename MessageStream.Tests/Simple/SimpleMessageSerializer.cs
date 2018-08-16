@@ -1,9 +1,9 @@
 ﻿using System;
-using MessageStream.Serializer;
+using MessageStream.Message;
 
 namespace MessageStream.Tests.Simple
 {
-    internal class SimpleMessageSerializer : ISerializer<SimpleMessage>
+    internal class SimpleMessageSerializer : IMessageSerializer<SimpleMessage>
     {
         public Span<byte> Serialize(SimpleMessage message, in Span<byte> buffer, bool bufferProvided)
         {

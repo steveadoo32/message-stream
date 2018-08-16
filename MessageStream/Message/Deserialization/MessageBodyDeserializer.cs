@@ -7,7 +7,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace MessageStream.Serializer
+namespace MessageStream.Message
 {
 
     public class MessageBodyDeserializer<TIdentifier, TMessage, TState>

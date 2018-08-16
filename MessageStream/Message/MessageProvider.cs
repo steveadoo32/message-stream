@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace MessageStream.Serializer
+namespace MessageStream.Message
 {
     public class MessageProvider<TIdentifier, TMessage> : IMessageProvider<TIdentifier, TMessage>
     {

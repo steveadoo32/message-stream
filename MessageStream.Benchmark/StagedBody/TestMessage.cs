@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace MessageStream.Tests.StagedBody
+namespace MessageStream.Benchmark.StagedBody
 {
 
     public class TestMessage : IStagedBodyMessage
@@ -16,7 +16,7 @@ namespace MessageStream.Tests.StagedBody
         public short MessageId => Id;
 
         public short Value { get; set; }
-
+        
     }
 
     public class TestMessageDeserializer : StagedBodyMessageDeserializer.IStagedBodyMessageBodyDeserializer<TestMessage>

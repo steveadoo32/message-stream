@@ -1,4 +1,4 @@
-﻿namespace MessageStream.Serializer
+﻿namespace MessageStream.Message
 {
 
     /// <summary>

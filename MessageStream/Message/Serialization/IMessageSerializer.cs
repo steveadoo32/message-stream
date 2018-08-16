@@ -1,8 +1,8 @@
 ﻿using System;
 
-namespace MessageStream.Serializer
+namespace MessageStream.Message
 {
-    public interface ISerializer<T>
+    public interface IMessageSerializer<T>
     {
 
         /// <summary>

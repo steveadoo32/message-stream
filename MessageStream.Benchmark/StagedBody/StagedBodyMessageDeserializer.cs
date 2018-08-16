@@ -2,7 +2,7 @@
 using System.Buffers;
 using MessageStream.Message;
 
-namespace MessageStream.Tests.StagedBody
+namespace MessageStream.Benchmark.StagedBody
 {
     public class StagedBodyMessageDeserializer : MessageWithHeaderDeserializer<StagedBodyMessageHeader, int, IStagedBodyMessage>
     {

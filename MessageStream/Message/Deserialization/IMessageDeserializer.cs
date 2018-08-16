@@ -1,9 +1,9 @@
 ﻿using System;
 using System.Buffers;
 
-namespace MessageStream.Serializer
+namespace MessageStream.Message
 {
-    public interface IDeserializer<T>
+    public interface IMessageDeserializer<T>
     {
 
         /// <summary>

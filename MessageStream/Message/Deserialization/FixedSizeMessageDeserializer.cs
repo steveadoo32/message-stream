@@ -3,7 +3,7 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.Text;
 
-namespace MessageStream.Serializer
+namespace MessageStream.Message
 {
 
 
@@ -11,7 +11,7 @@ namespace MessageStream.Serializer
     /// A fixed size message deserializer
     /// </summary>
     /// <typeparam name="T"></typeparam>
-    public abstract class FixedSizeMessageDeserializer<T> : IDeserializer<T>
+    public abstract class FixedSizeMessageDeserializer<T> : IMessageDeserializer<T>
     {
 
         /// <summary>
@@ -19,7 +19,7 @@ namespace MessageStream.Serializer
         /// </summary>
         protected abstract int MessageSize { get; }
 
-        unsafe bool IDeserializer<T>.Deserialize(in ReadOnlySequence<byte> buffer, out SequencePosition read, out T message)
+        unsafe bool IMessageDeserializer<T>.Deserialize(in ReadOnlySequence<byte> buffer, out SequencePosition read, out T message)
         {
             read = buffer.Start;
             message = default;

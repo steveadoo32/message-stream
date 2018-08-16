@@ -9,13 +9,13 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace MessageStream.Serializer
+namespace MessageStream.Message
 {
 
     /// <summary>
     /// Deserializes bytes in stages. Useful if your messages have fixed size headers and variable bodies.
     /// </summary>
-    public abstract class StagedDeserializer<T> : IDeserializer<T>
+    public abstract class StagedDeserializer<T> : IMessageDeserializer<T>
     {
 
         private IDeserializationPipeline<T> pipeline;
@@ -327,7 +327,7 @@ namespace MessageStream.Serializer
             return label;
         }
 
-        bool IDeserializer<T>.Deserialize(in ReadOnlySequence<byte> buffer, out SequencePosition read, out T message)
+        bool IMessageDeserializer<T>.Deserialize(in ReadOnlySequence<byte> buffer, out SequencePosition read, out T message)
         {
             return pipeline.Deserialize(in buffer, out read, out message);
         }

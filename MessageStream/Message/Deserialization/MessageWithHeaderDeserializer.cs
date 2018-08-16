@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace MessageStream.Serializer
+namespace MessageStream.Message
 {
     public abstract class MessageWithHeaderDeserializer<THeader, TIdentifier, T> : StagedDeserializer<T>
     {
@@ -31,12 +31,16 @@ namespace MessageStream.Serializer
         {
             var message = messageBodyDeserializer.Deserialize(buffer, header, GetMessageIdentifier(header));
 
-            ProcessMessage(header, message);
+            PostProcessMessage(header, message);
 
             return message;
         }
 
-        protected virtual void ProcessMessage(THeader header, T message) { }
+        /// <summary>
+        /// Called after the header and body have been deserialized.
+        /// Generally used to set the header on a header property on the actual message.
+        /// </summary>
+        protected virtual void PostProcessMessage(THeader header, T message) { }
 
         protected abstract THeader ReadHeader(in ReadOnlySpan<byte> headerBuffer, out int bodyLength);
 

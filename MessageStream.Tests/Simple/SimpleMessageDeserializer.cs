@@ -1,6 +1,6 @@
 ﻿using System;
 using System.Buffers;
-using MessageStream.Serializer;
+using MessageStream.Message;
 
 namespace MessageStream.Tests.Simple
 {

@@ -3,8 +3,10 @@ MessageStream wraps the new Pipelines API into an easy to use framework for mess
 
 # Getting Started
 Very simple examples are located in MessageStream.Tests.Simple. That is the fastest and easiest way to get started.
+You can also look at the benchmark project
 
 # TODO
-1. Serialization still needs work, it is not as built out as Deserialiazation.
 1. The codegen pieces for deserialization do not work if you're interface implementations are declared explicitly.
+1. Use Benchmark.NET
+1. If your message sizes are greater than the stack size(1MB) your app will crash. This will be fixed in later versions.
 1. Build out the README.

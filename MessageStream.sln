@@ -5,7 +5,9 @@ VisualStudioVersion = 15.0.27703.2026
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MessageStream", "MessageStream\MessageStream.csproj", "{89C3DB0C-3F82-4331-86E0-0A0190BA0766}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MessageStream.Tests", "MessageStream.Tests\MessageStream.Tests.csproj", "{D44FBCD0-FCDB-400B-83F4-8E9B8254A0EE}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MessageStream.Tests", "MessageStream.Tests\MessageStream.Tests.csproj", "{D44FBCD0-FCDB-400B-83F4-8E9B8254A0EE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MessageStream.Benchmark", "MessageStream.Benchmark\MessageStream.Benchmark.csproj", "{A9753BE3-CC0F-4C58-8450-72DBDC4A5408}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -21,6 +23,10 @@ Global
 		{D44FBCD0-FCDB-400B-83F4-8E9B8254A0EE}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D44FBCD0-FCDB-400B-83F4-8E9B8254A0EE}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D44FBCD0-FCDB-400B-83F4-8E9B8254A0EE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A9753BE3-CC0F-4C58-8450-72DBDC4A5408}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A9753BE3-CC0F-4C58-8450-72DBDC4A5408}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A9753BE3-CC0F-4C58-8450-72DBDC4A5408}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A9753BE3-CC0F-4C58-8450-72DBDC4A5408}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 using System.Buffers;
 using System.Runtime.CompilerServices;
 using MessageStream.IO;
-using MessageStream.Serializer;
+using MessageStream.Message;
 using System.Threading;
 
 namespace MessageStream
@@ -13,9 +13,9 @@ namespace MessageStream
     {
 
         private readonly IReader reader;
-        private readonly IDeserializer<T> deserializer;
+        private readonly IMessageDeserializer<T> deserializer;
         private readonly IWriter writer;
-        private readonly ISerializer<T> serializer;
+        private readonly IMessageSerializer<T> serializer;
 
         private readonly PipeOptions readerPipeOptions;
 
@@ -42,9 +42,9 @@ namespace MessageStream
         /// <param name="writerCloseTimeout">How long should we wait for the writer to finish writing data before closing</param>
         public MessageStream(
             IReader reader,
-            IDeserializer<T> deserializer,
+            IMessageDeserializer<T> deserializer,
             IWriter writer,
-            ISerializer<T> serializer,
+            IMessageSerializer<T> serializer,
             PipeOptions readerPipeOptions = null,
             PipeOptions writerPipeOptions = null,
             TimeSpan? writerCloseTimeout = null
@@ -201,7 +201,7 @@ namespace MessageStream
                 memory = writePipe.Writer.GetMemory(size);
 
                 // We don't need to copy here because we are writing directly to the memory span
-                buffer = serializer.Serialize(message, memory.Span, true);
+                buffer = serializer.Serialize(message, memory.Span.Slice(0, size), true);
             }
             else
             {
