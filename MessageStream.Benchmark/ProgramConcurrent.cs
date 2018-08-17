@@ -4,16 +4,19 @@ using MessageStream.Message;
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace MessageStream.Benchmark
 {
-    class Program
+    class ProgramConcurrent
     {
-        public static async Task Main0(string[] args)
+        public static async Task Main(string[] args)
         {
-            const int messageCount = 10_000_000;
+            const int messageCount = 1_000_000;
             const int iterations = 10;
+            const int parallellism = 10;
 
             int messageCounter = 0;
             var stopwatch = new Stopwatch();
@@ -23,11 +26,12 @@ namespace MessageStream.Benchmark
             var readStream = await GetReadStreamAsync(messageCount).ConfigureAwait(false);
             var writeStream = new MemoryStream();
 
-            var messageStream = new MessageStream<IStagedBodyMessage>(
+            var messageStream = new ConcurrentMessageStream<IStagedBodyMessage>(
                     new MessageStreamReader(readStream),
                     new StagedBodyMessageDeserializer(
                         messageProvider,
-                        new TestMessageDeserializer()
+                        new TestMessageDeserializer(),
+                        new TestMessage2Deserializer()
                     ),
                     new MessageStreamWriter(writeStream),
                     new StagedBodyMessageSerializer(
@@ -35,7 +39,7 @@ namespace MessageStream.Benchmark
                         new TestMessage2Serializer()
                     )
                 );
-
+            
             for (int i = 0; i < iterations; i++)
             {
                 readStream.Position = 0;
@@ -45,40 +49,27 @@ namespace MessageStream.Benchmark
 
                 await messageStream.OpenAsync().ConfigureAwait(false);
 
-                MessageReadResult<IStagedBodyMessage> messageResult;
-
                 stopwatch.Restart();
-
-                while (true)
+                
+                await Task.WhenAll(Enumerable.Range(0, parallellism).Select(async _ =>
                 {
-                    messageResult = await messageStream.ReadAsync().ConfigureAwait(false);
-
-                    if (messageResult.IsCompleted)
+                    while (true)
                     {
-                        break;
+                        var result = await messageStream.ReadAsync().ConfigureAwait(false);
+                        if (result.Result != null)
+                        {
+                            Interlocked.Increment(ref messageCounter);
+                        }
+                        if (result.IsCompleted)
+                        {
+                            break;
+                        }
                     }
-
-                    //if (messageStream.Open)
-                    //{
-                    //    await messageStream.WriteAsync(messageResult.Result).ConfigureAwait(false);
-                    //}
-
-                    if (messageResult.Result != null)
-                    {
-                        //messageProvider.Return(messageResult.Result.MessageId, messageResult.Result);
-                    }
-
-                    messageCounter++;
-                }
-
+                })).ConfigureAwait(false);
+                
                 if (messageStream.Open)
                 {
                     await messageStream.CloseAsync().ConfigureAwait(false);
-                }
-
-                if (messageResult.Error)
-                {
-                    Console.WriteLine($"Error reading message stream.");
                 }
 
                 stopwatch.Stop();

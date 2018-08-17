@@ -62,7 +62,7 @@ namespace MessageStream
 
         #region Open/Close
 
-        public Task OpenAsync()
+        public virtual Task OpenAsync()
         {
             if (Open)
             {
@@ -98,7 +98,7 @@ namespace MessageStream
             return Task.CompletedTask;
         }
 
-        public async Task CloseAsync()
+        public virtual async Task CloseAsync()
         {
             if (!Open)
             {
@@ -129,7 +129,7 @@ namespace MessageStream
 
         #region Read/Write
         
-        public async ValueTask<MessageReadResult<T>> ReadAsync()
+        public virtual async ValueTask<MessageReadResult<T>> ReadAsync()
         {
             bool partialMessage = false;
             T message = default;
@@ -170,7 +170,7 @@ namespace MessageStream
             return deserializer.Deserialize(in buffer, out read, out message);
         }
 
-        public async ValueTask<MessageWriteResult> WriteAsync(T message)
+        public virtual async ValueTask<MessageWriteResult> WriteAsync(T message)
         {
             // Write the data into the Writer
             var result = await writePipe.Writer.WriteAsync(SerializeMessage(message)).ConfigureAwait(false);

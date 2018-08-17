@@ -5,6 +5,8 @@ using MessageStream.IO;
 using System.IO;
 using System.Threading.Tasks;
 using MessageStream.Message;
+using System.Linq;
+using System.Threading;
 
 namespace MessageStream.Tests.StagedBody
 {
@@ -69,5 +71,78 @@ namespace MessageStream.Tests.StagedBody
             await messageStream.CloseAsync().ConfigureAwait(false);
 
         }
+
+        [Fact(DisplayName = "Multithreaded Staged Deserializer Write/Read")]
+        public async Task TestMultiThreadedStagedStream()
+        {
+            var readStream = new MemoryStream();
+            var writeStream = new MemoryStream();
+
+            var messageStream = new ConcurrentMessageStream<IStagedBodyMessage>(
+                    new MessageStreamReader(readStream),
+                    new StagedBodyMessageDeserializer(
+                        new MessageProvider<int, IStagedBodyMessage>(),
+                        new TestMessageDeserializer()
+                    ),
+                    new MessageStreamWriter(writeStream),
+                    new StagedBodyMessageSerializer(
+                        new TestMessageSerializer()
+                    ),
+                    readerFlushTimeout: TimeSpan.FromSeconds(1)
+                );
+
+            await messageStream.OpenAsync().ConfigureAwait(false);
+
+            const int messageCount = 100000;
+            const int parallellism = 10;
+            const int blockSize = messageCount / parallellism;
+            var random = new Random();
+
+            await Task.WhenAll(Enumerable.Range(0, parallellism).Select(async _ =>
+            {
+                for (int i = 0; i < blockSize; i++)
+                {
+                    await messageStream.WriteAsync(new TestMessage
+                    {
+                        Value = (short) random.Next(10000)
+                    }).ConfigureAwait(false);
+                }
+            })).ConfigureAwait(false);
+
+            await messageStream.CloseAsync().ConfigureAwait(false);
+
+            // Reset the streams position so we can read in the messages
+            writeStream.Position = 0;
+            writeStream.CopyTo(readStream);
+            readStream.Position = 0;
+
+            await messageStream.OpenAsync().ConfigureAwait(false);
+
+            int actualMessageCount = 0;
+
+            await Task.WhenAll(Enumerable.Range(0, parallellism).Select(async _ =>
+            {
+                while (true)
+                {
+                    var result = await messageStream.ReadAsync().ConfigureAwait(false);
+                    if (result.Result != null)
+                    {
+                        Interlocked.Increment(ref actualMessageCount);
+                    }
+                    if (result.IsCompleted)
+                    {
+                        break;
+                    }
+                }
+            })).ConfigureAwait(false);
+
+
+            Assert.Equal(messageCount, actualMessageCount);
+
+            // Close
+            await messageStream.CloseAsync().ConfigureAwait(false);
+
+        }
+
     }
 }
