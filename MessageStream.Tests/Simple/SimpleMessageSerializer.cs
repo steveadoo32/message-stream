@@ -1,5 +1,5 @@
-﻿using System;
-using MessageStream.Message;
+﻿using MessageStream.Message;
+using System;
 
 namespace MessageStream.Tests.Simple
 {

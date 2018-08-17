@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace MessageStream.Tests.Simple
+﻿namespace MessageStream.Tests.Simple
 {
     public class SimpleMessage
     {

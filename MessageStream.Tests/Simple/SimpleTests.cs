@@ -1,9 +1,7 @@
-using System;
-using Xunit;
-using MessageStream;
 using MessageStream.IO;
 using System.IO;
 using System.Threading.Tasks;
+using Xunit;
 
 namespace MessageStream.Tests.Simple
 {

@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace MessageStream.Benchmark.StagedBody
+﻿namespace MessageStream.Benchmark.StagedBody
 {
     public interface IStagedBodyMessage
     {

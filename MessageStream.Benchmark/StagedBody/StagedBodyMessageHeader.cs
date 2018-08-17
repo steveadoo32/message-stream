@@ -1,5 +1,5 @@
 ﻿namespace MessageStream.Benchmark.StagedBody
-{ 
+{
 
     public struct StagedBodyMessageHeader
     {

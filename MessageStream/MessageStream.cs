@@ -1,11 +1,11 @@
-﻿using System;
-using System.IO.Pipelines;
-using System.Threading.Tasks;
-using System.Buffers;
-using System.Runtime.CompilerServices;
-using MessageStream.IO;
+﻿using MessageStream.IO;
 using MessageStream.Message;
+using System;
+using System.Buffers;
+using System.IO.Pipelines;
+using System.Runtime.CompilerServices;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace MessageStream
 {

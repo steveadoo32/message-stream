@@ -1,7 +1,4 @@
-﻿using MessageStream.Message;
-using System;
-using System.Collections.Generic;
-using System.Text;
+﻿using System;
 
 namespace MessageStream.Benchmark.StagedBody
 {

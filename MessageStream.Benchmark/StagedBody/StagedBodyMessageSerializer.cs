@@ -1,7 +1,5 @@
 ﻿using MessageStream.Message;
 using System;
-using System.Collections.Generic;
-using System.Text;
 
 namespace MessageStream.Benchmark.StagedBody
 {

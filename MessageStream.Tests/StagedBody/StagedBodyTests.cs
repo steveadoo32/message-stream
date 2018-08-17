@@ -1,12 +1,11 @@
-using System;
-using Xunit;
-using MessageStream;
 using MessageStream.IO;
-using System.IO;
-using System.Threading.Tasks;
 using MessageStream.Message;
+using System;
+using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
+using Xunit;
 
 namespace MessageStream.Tests.StagedBody
 {
