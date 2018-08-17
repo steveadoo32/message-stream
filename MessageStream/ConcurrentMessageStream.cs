@@ -14,7 +14,7 @@ namespace MessageStream
 
         public readonly TimeSpan DefaultReaderFlushTimeout = TimeSpan.FromSeconds(1);
 
-        private const int DefaultBufferSize = 4096;
+        private const int DefaultBufferSize = 4096 * 4;
 
         private static readonly ChannelOptions DefaultChannelOptions = new BoundedChannelOptions(DefaultBufferSize);
 
@@ -30,8 +30,8 @@ namespace MessageStream
         /// <summary>
         /// 
         /// </summary>
-        /// <param name="readerMessageBuffer">Pass in null to create an unbounded channel</param>
-        /// <param name="writerMessageBuffer">Pass in null to create an unbounded channel</param>
+        /// <param name="readerMessageBuffer">Can be UnboundedChannelOptions or BoundedChannelOptions.</param>
+        /// <param name="writerMessageBuffer">Can be UnboundedChannelOptions or BoundedChannelOptions.</param>
         /// <param name="readerFlushTimeout">
         /// How long to give the readers to read the rest of the messages after the stream has closed.
         /// If you pass in null, it will wait forever. If you have no readers and pass null in you can sit forever
