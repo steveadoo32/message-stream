@@ -9,10 +9,9 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MessageStream.Tests", "Mess
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MessageStream.Benchmark", "MessageStream.Benchmark\MessageStream.Benchmark.csproj", "{A9753BE3-CC0F-4C58-8450-72DBDC4A5408}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MessageStream.ProtoBuf", "MessageStream.Protobuf\MessageStream.ProtoBuf.csproj", "{97FDD3F7-95C8-4FAD-AA70-4847E6985555}"
+EndProject
 Global
-	GlobalSection(Performance) = preSolution
-		HasPerformanceSessions = true
-	EndGlobalSection
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
 		Release|Any CPU = Release|Any CPU
@@ -30,12 +29,19 @@ Global
 		{A9753BE3-CC0F-4C58-8450-72DBDC4A5408}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A9753BE3-CC0F-4C58-8450-72DBDC4A5408}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A9753BE3-CC0F-4C58-8450-72DBDC4A5408}.Release|Any CPU.Build.0 = Release|Any CPU
+		{97FDD3F7-95C8-4FAD-AA70-4847E6985555}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{97FDD3F7-95C8-4FAD-AA70-4847E6985555}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{97FDD3F7-95C8-4FAD-AA70-4847E6985555}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{97FDD3F7-95C8-4FAD-AA70-4847E6985555}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {2D62667A-80DB-41A7-9E15-CEE0EC0EDAAA}
+	EndGlobalSection
+	GlobalSection(Performance) = preSolution
+		HasPerformanceSessions = true
 	EndGlobalSection
 	GlobalSection(Performance) = preSolution
 		HasPerformanceSessions = true

@@ -53,7 +53,16 @@ namespace System
 
             return (short)(((byte)b1 << 8) | (byte)b2);
         }
-        
+
+        /// <summary>
+        /// Reads a character from the buffer
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static char ReadChar(this in ReadOnlySpan<byte> buffer, ref int index)
+        {
+            return (char)buffer[index++];
+        }
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void WriteUInt(this in Span<byte> buffer, ref int index, uint value)
         {

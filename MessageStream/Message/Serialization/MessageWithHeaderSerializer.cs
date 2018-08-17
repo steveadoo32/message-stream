@@ -70,7 +70,7 @@ namespace MessageStream.Message
             return calculated;
         }
 
-        public Span<byte> Serialize(T message, in Span<byte> buffer, bool bufferProvided)
+        public virtual Span<byte> Serialize(T message, in Span<byte> buffer, bool bufferProvided)
         {
             if (bufferProvided)
             {
