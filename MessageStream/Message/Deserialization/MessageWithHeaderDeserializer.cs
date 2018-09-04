@@ -25,7 +25,7 @@ namespace MessageStream.Message
         }
 
         [DeserializationStage(1)]
-        public virtual T Deserialize(in ReadOnlySpan<byte> buffer, THeader header)
+        public T Deserialize(in ReadOnlySpan<byte> buffer, THeader header)
         {
             var message = messageBodyDeserializer.Deserialize(buffer, header, GetMessageIdentifier(header));
 

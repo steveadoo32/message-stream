@@ -10,7 +10,7 @@ namespace MessageStream.Benchmark
 {
     class Program
     {
-        public static async Task Main0(string[] args)
+        public static async Task Main(string[] args)
         {
             const int messageCount = 1_000_000;
             const int iterations = 10;
@@ -35,6 +35,8 @@ namespace MessageStream.Benchmark
                         new TestMessage2Serializer()
                     )
                 );
+
+            Console.WriteLine();
 
             for (int i = 0; i < iterations; i++)
             {
@@ -84,9 +86,6 @@ namespace MessageStream.Benchmark
                 stopwatch.Stop();
 
                 Console.WriteLine($"Done iteration: {messageCounter / stopwatch.Elapsed.TotalSeconds} messages/s. {messageCounter} total messages read.");
-
-                Console.WriteLine();
-                Console.WriteLine();
             }
 
             readStream.Dispose();
