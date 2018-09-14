@@ -50,20 +50,26 @@ namespace MessageStream.Message
 
         private DeserializeMessageDelegate BuildDeserializeDelegate(IMessageBodyDeserializer<TIdentifier> deserializer)
         {
-            const string methodName = "Deserialize";
+            const string deserializeMethodName = "Deserialize";
+            const string deserializeBodyMethodName = nameof(IMessageBodyDeserializer<TIdentifier, TState, TMessage>.DeserializeOnto);
 
             var deserializerType = deserializer.GetType();
             var (realMessageType, interfaceType) = ResolveRealMessageType(deserializer.GetType());
 
-            var deserializeMethod = deserializerType.GetMethod("DeserializeOnto");
+            var deserializeMethod = deserializerType.GetMethod(deserializeBodyMethodName);
 
             // This doesn't work. I do not know why. ;(
             if (deserializeMethod == null)
             {
-                var map = deserializerType.GetInterfaceMap(interfaceType);
-                var interfaceMethod = interfaceType.GetMethod("DeserializeOnto");
-                deserializerType = map.InterfaceType;
-                deserializeMethod = map.TargetMethods[Array.IndexOf(map.InterfaceMethods, interfaceMethod)];
+                //var map = deserializerType.GetInterfaceMap(interfaceType);
+                //var interfaceMethod = interfaceType.GetMethod(deserializeBodyMethodName);
+
+                deserializerType = typeof(IMessageBodyDeserializer<,,>).MakeGenericType(typeof(TIdentifier), typeof(TState), realMessageType);
+                var genericInterfaceMethod = deserializerType.GetMethod(nameof(IMessageBodyDeserializer<TIdentifier, TState, TMessage>.DeserializeOnto));
+
+                bool same = deserializerType == interfaceType;
+                //deserializerType = map.InterfaceType;
+                //deserializeMethod = map.TargetMethods[Array.IndexOf(map.InterfaceMethods, interfaceMethod)];
             }
 
             var typeBuilder = CreateTypeBuilderForDeserializer(realMessageType.Name + "Body");
@@ -88,7 +94,7 @@ namespace MessageStream.Message
 
             // Generate method
             var deserializeMethodBuilder = typeBuilder.DefineMethod(
-                methodName,
+                deserializeMethodName,
                 MethodAttributes.Public | MethodAttributes.HideBySig |
                 MethodAttributes.Virtual | MethodAttributes.Final,
                 CallingConventions.HasThis,
@@ -127,6 +133,7 @@ namespace MessageStream.Message
             methodIlGenerator.Emit(OpCodes.Ldfld, messageProviderField);
 
             methodIlGenerator.Emit(OpCodes.Ldarg_3);
+
             var getMessageMethod = typeof(IMessageProvider<TIdentifier, TMessage>).GetMethod(nameof(IMessageProvider<TIdentifier, TMessage>.GetMessage)).MakeGenericMethod(realMessageType);
             methodIlGenerator.Emit(OpCodes.Callvirt, getMessageMethod);
             methodIlGenerator.Emit(OpCodes.Stloc, messageLocal);
@@ -152,7 +159,7 @@ namespace MessageStream.Message
             var type = typeBuilder.CreateType();
             var obj = Activator.CreateInstance(type, new object[] { deserializer, messageProvider });
             
-            return (DeserializeMessageDelegate) type.GetMethod("Deserialize").CreateDelegate(typeof(DeserializeMessageDelegate), obj);
+            return (DeserializeMessageDelegate) type.GetMethod(deserializeMethodName).CreateDelegate(typeof(DeserializeMessageDelegate), obj);
         }
 
         private (Type messageType, Type interfaceType) ResolveRealMessageType(Type type)

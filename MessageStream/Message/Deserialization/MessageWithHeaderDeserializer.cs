@@ -19,7 +19,7 @@ namespace MessageStream.Message
         }
 
         [DeserializationStage(0)]
-        public THeader Deserialize(in ReadOnlySpan<byte> buffer, out int nextStageLength)
+        public virtual THeader DeserializeHeader(in ReadOnlySpan<byte> buffer, out int nextStageLength)
         {
             return ReadHeader(in buffer, out nextStageLength);
         }

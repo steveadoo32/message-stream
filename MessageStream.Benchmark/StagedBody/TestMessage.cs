@@ -1,4 +1,5 @@
 ﻿using System;
+using MessageStream.Message;
 
 namespace MessageStream.Benchmark.StagedBody
 {
@@ -18,15 +19,14 @@ namespace MessageStream.Benchmark.StagedBody
 
     public class TestMessageDeserializer : StagedBodyMessageDeserializer.IStagedBodyMessageBodyDeserializer<TestMessage>
     {
+        
+        int IMessageBodyDeserializer<int>.Identifier => TestMessage.Id;
 
-        public int Identifier => TestMessage.Id;
-
-        public void DeserializeOnto(in ReadOnlySpan<byte> buffer, StagedBodyMessageHeader state, ref TestMessage message)
+        void IMessageBodyDeserializer<int, StagedBodyMessageHeader, TestMessage>.DeserializeOnto(in ReadOnlySpan<byte> buffer, StagedBodyMessageHeader state, ref TestMessage message)
         {
             int index = 0;
             message.Value = buffer.ReadShort(ref index);
         }
-
     }
 
     public class TestMessageSerializer : StagedBodyMessageSerializer.KnownSizeMessageBodySerializer<TestMessage>

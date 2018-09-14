@@ -23,7 +23,7 @@ namespace MessageStream.ProtoBuf
         }
 
         [DeserializationStage(1)]
-        public object ReadBody(in ReadOnlySpan<byte> buffer, ProtoBufMessageHeader header)
+        public virtual object ReadBody(in ReadOnlySpan<byte> buffer, ProtoBufMessageHeader header)
         {
             int offset = 0;
             

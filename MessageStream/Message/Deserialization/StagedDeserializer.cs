@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Buffers;
+using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
@@ -91,7 +92,7 @@ namespace MessageStream.Message
                 .Where(method => method.GetCustomAttribute(typeof(DeserializationStage)) != null)
                 .Select(method => new
                 {
-                    method = method,
+                    method = method.GetRuntimeBaseDefinition(),
                     attribute = (DeserializationStage)method.GetCustomAttribute(typeof(DeserializationStage))
                 })
                 .OrderBy(tuple => tuple.attribute.Stage)
@@ -106,10 +107,14 @@ namespace MessageStream.Message
             var readOnlyStageBufferLocal = methodIlGenerator.DeclareLocal(typeof(ReadOnlySpan<byte>));
             var stageLengthLocal = methodIlGenerator.DeclareLocal(typeof(int));
             var lastStageLengthLocal = methodIlGenerator.DeclareLocal(typeof(int));
+            var thisLocal = methodIlGenerator.DeclareLocal(concreteType);
 
             // Have to declare these first too before the rest of the method.
             var stageMethodLocals = stageMethods.Select(sm => methodIlGenerator.DeclareLocal(sm.ReturnType)).ToArray();
-            
+
+            methodIlGenerator.Emit(OpCodes.Ldarg_0);
+            methodIlGenerator.Emit(OpCodes.Stloc, thisLocal);
+
             // position = buffer.Start;
             methodIlGenerator.Emit(OpCodes.Ldarg_2);
             methodIlGenerator.Emit(OpCodes.Ldarg_1);
@@ -231,36 +236,31 @@ namespace MessageStream.Message
                 methodIlGenerator.Emit(OpCodes.Ldloc, stageLengthLocal);
                 methodIlGenerator.Emit(OpCodes.Stloc, lastStageLengthLocal);
 
+                methodIlGenerator.Emit(OpCodes.Call, typeof(Debugger).GetMethod("Break"));
+
                 // Call the stage method. If first iteration we have no state to pass in
                 // If its the last iteration we don't need to pass in stageLength
+                methodIlGenerator.Emit(OpCodes.Ldarg_0);
+                methodIlGenerator.Emit(OpCodes.Ldfld, deserializerField);
+                methodIlGenerator.Emit(OpCodes.Ldloca, readOnlyStageBufferLocal);
+
                 if (first)
                 {
-                    methodIlGenerator.Emit(OpCodes.Ldarg_0);
-                    methodIlGenerator.Emit(OpCodes.Ldfld, deserializerField);
-                    methodIlGenerator.Emit(OpCodes.Ldloca, readOnlyStageBufferLocal);
                     methodIlGenerator.Emit(OpCodes.Ldloca, stageLengthLocal);
-                    methodIlGenerator.Emit(OpCodes.Call, method);
-                    methodIlGenerator.Emit(OpCodes.Stloc, stageResultLocal);
                 }
                 else if (last)
                 {
-                    methodIlGenerator.Emit(OpCodes.Ldarg_0);
-                    methodIlGenerator.Emit(OpCodes.Ldfld, deserializerField);
-                    methodIlGenerator.Emit(OpCodes.Ldloca, readOnlyStageBufferLocal);
                     methodIlGenerator.Emit(OpCodes.Ldloc, previousStageResultLocal);
-                    methodIlGenerator.Emit(OpCodes.Call, method);
-                    methodIlGenerator.Emit(OpCodes.Stloc, stageResultLocal);
                 }
                 else
                 {
-                    methodIlGenerator.Emit(OpCodes.Ldarg_0);
-                    methodIlGenerator.Emit(OpCodes.Ldfld, deserializerField);
-                    methodIlGenerator.Emit(OpCodes.Ldloca, readOnlyStageBufferLocal);
                     methodIlGenerator.Emit(OpCodes.Ldloc, previousStageResultLocal);
                     methodIlGenerator.Emit(OpCodes.Ldloca, stageLengthLocal);
-                    methodIlGenerator.Emit(OpCodes.Call, method);
-                    methodIlGenerator.Emit(OpCodes.Stloc, stageResultLocal);
                 }
+
+                // Emit the actual call to the method.
+                methodIlGenerator.EmitCall(method.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, method, null);
+                methodIlGenerator.Emit(OpCodes.Stloc, stageResultLocal);
             }
 
             // Set the message to the last stage result, which should be the message type they're expecting.

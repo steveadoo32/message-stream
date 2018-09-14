@@ -10,7 +10,7 @@ namespace MessageStream.Benchmark
 {
     class Program
     {
-        public static async Task Main(string[] args)
+        public static async Task Main0(string[] args)
         {
             const int messageCount = 1_000_000;
             const int iterations = 10;
@@ -143,5 +143,28 @@ namespace MessageStream.Benchmark
 
             return memoryStream;
         }
+
+        public static void Bullshit()
+        {
+            IMessageBodyDeserializer<int, StagedBodyMessageHeader, TestMessage> deser = new TestMessageDeserializer();
+
+            var readOnlyBuffer = new ReadOnlySpan<byte>();
+            var header = new StagedBodyMessageHeader();
+            var message = new TestMessage();
+
+            deser.DeserializeOnto(readOnlyBuffer, header, ref message);
+        }
+
+        public static void Bullshit2()
+        {
+            TestMessage2Deserializer deser = new TestMessage2Deserializer();
+
+            var readOnlyBuffer = new ReadOnlySpan<byte>();
+            var header = new StagedBodyMessageHeader();
+            var message = new TestMessage2();
+
+            deser.DeserializeOnto(readOnlyBuffer, header, ref message);
+        }
+
     }
 }
