@@ -66,10 +66,12 @@ namespace MessageStream.Sockets.Sandbox
                 stopwatch.Start();
             }
 
-            if (messageId % 10000 == 0)
+            if (messageId % 1000000 == 0)
             {
                 Logger.Info($"Messages received: {messagesReceived}. Messages/s: {messagesReceived / stopwatch.Elapsed.TotalSeconds}");
             }
+
+            Deserializer.messageProvider.Return(0, message);
 
             return true;
         }

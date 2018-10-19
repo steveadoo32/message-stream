@@ -181,7 +181,7 @@ namespace MessageStream
 
                     if (!HandleMessagesAsynchronously)
                     {
-                        await handleTask.ConfigureAwait(false);
+                        bool returnToPool = await handleTask.ConfigureAwait(false);
                     }
                 }
 

@@ -8,7 +8,7 @@ namespace MessageStream.Message
 
         private Dictionary<TIdentifier, ConcurrentQueue<TMessage>> MessageQueues = new Dictionary<TIdentifier, ConcurrentQueue<TMessage>>();
 
-        T IMessageProvider<TIdentifier, TMessage>.GetMessage<T>(TIdentifier identifier)
+        public T GetMessage<T>(TIdentifier identifier) where T : TMessage, new()
         {
             var queue = GetQueue(identifier);
 

@@ -8,14 +8,17 @@ namespace MessageStream.Sockets.Sandbox
 
         protected override int MessageSize => 4;
 
+        public PooledMessageProvider<int, SimpleMessage> messageProvider = new PooledMessageProvider<int, SimpleMessage>();
+
         protected override SimpleMessage Deserialize(in ReadOnlySpan<byte> buffer)
         {
             int index = 0;
-            return new SimpleMessage
-            {
-                Id = buffer.ReadShort(ref index),
-                Value = buffer.ReadShort(ref index)
-            };
+            var msg = messageProvider.GetMessage<SimpleMessage>(0);
+
+            msg.Id = buffer.ReadShort(ref index);
+            msg.Value = buffer.ReadShort(ref index);
+
+            return msg;
         }
 
     }
