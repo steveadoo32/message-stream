@@ -392,26 +392,39 @@ namespace MessageStream
         {
             var reader = writeChannel.Reader;
 
-            while (true)
+            try
             {
-                var finished = await reader.WaitToReadAsync().ConfigureAwait(false);
-
-                if (!finished || !reader.TryRead(out var writeRequest))
+                while (true)
                 {
-                    break;
-                }
+                    var finished = await reader.WaitToReadAsync().ConfigureAwait(false);
 
-                if (writeRequest.resultTcs != null)
-                {
-                    requestQueue.Enqueue(new MessageWriteRequestResult(writeRequest.resultTcs, writeRequest.resultMatchFunc));
-                }
+                    if (!finished || !reader.TryRead(out var writeRequest))
+                    {
+                        break;
+                    }
 
-                var writeResult = await base.WriteAsync(writeRequest.message).ConfigureAwait(false);
+                    if (writeRequest.resultTcs != null)
+                    {
+                        requestQueue.Enqueue(new MessageWriteRequestResult(writeRequest.resultTcs, writeRequest.resultMatchFunc));
+                    }
 
-                if (writeRequest.writeTcs != null)
-                {
-                    writeRequest.writeTcs.TrySetResult(writeResult);
+                    var writeResult = await base.WriteAsync(writeRequest.message).ConfigureAwait(false);
+
+                    if (writeRequest.writeTcs != null)
+                    {
+                        writeRequest.writeTcs.TrySetResult(writeResult);
+                    }
+
+                    if (writeResult.IsCompleted)
+                    {
+                        break;
+                    }
                 }
+            }
+            catch
+            {
+                // This happens if the underlying stream is closed and we have a message in flight.
+                // We can just ignore it.
             }
 
             while (reader.TryRead(out var writeRequest))

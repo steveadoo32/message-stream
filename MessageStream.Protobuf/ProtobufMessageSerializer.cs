@@ -21,7 +21,8 @@ namespace MessageStream.ProtoBuf
 
         public Span<byte> Serialize(object message, in Span<byte> buffer = default, bool bufferProvided = false)
         {
-            using (var memoryStream = new MemoryStream()) {
+            using (var memoryStream = new MemoryStream())
+            {
                 Serializer.Serialize(memoryStream, message);
                 var bytes = memoryStream.ToArray();
 

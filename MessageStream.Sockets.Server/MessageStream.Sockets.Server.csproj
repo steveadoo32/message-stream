@@ -6,6 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\MessageStream.Sockets\MessageStream.Sockets.csproj" />
     <ProjectReference Include="..\MessageStream\MessageStream.csproj" />
   </ItemGroup>
 

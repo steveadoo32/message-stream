@@ -199,6 +199,16 @@ namespace MessageStream
 
         public virtual async ValueTask<MessageWriteResult> WriteAsync(T message)
         {
+            if (!Open)
+            {
+                return new MessageWriteResult
+                {
+                    IsCompleted = true,
+                    Error = true,
+                    Exception = null
+                };
+            }
+
             // Serialize
             var serializedMessage = SerializeMessage(message);
 

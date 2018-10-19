@@ -16,7 +16,7 @@ namespace MessageStream.Tests.Simple
 
             var messageStream = new MessageStream<SimpleMessage>(
                     new MessageStreamReader(readStream),
-                    new StructMessageDeserializer(),
+                    new SimpleMessageDeserializer(),
                     new MessageStreamWriter(writeStream),
                     new SimpleMessageSerializer()
                 );
@@ -72,7 +72,7 @@ namespace MessageStream.Tests.Simple
 
             var messageStream = new MessageStream<object>(
                     new MessageStreamReader(readStream),
-                    new ProtoBuf.ProtoBufMessageDeserializer(),
+                    new ProtoBuf.ProtobufMessageDeserializer(),
                     new MessageStreamWriter(writeStream),
                     new ProtoBuf.ProtoBufMessageSerializer()
                 );

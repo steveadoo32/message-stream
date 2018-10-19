@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>netcoreapp2.1</TargetFramework>
+    <LangVersion>7.2</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MessageStream.Protobuf\MessageStream.ProtoBuf.csproj" />
+    <ProjectReference Include="..\MessageStream.Sockets.Server\MessageStream.Sockets.Server.csproj" />
+    <ProjectReference Include="..\MessageStream.Sockets\MessageStream.Sockets.csproj" />
+    <ProjectReference Include="..\MessageStream\MessageStream.csproj" />
+  </ItemGroup>
+
+</Project>

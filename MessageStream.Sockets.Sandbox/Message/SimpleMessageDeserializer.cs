@@ -1,9 +1,9 @@
 ﻿using MessageStream.Message;
 using System;
 
-namespace MessageStream.Tests.Simple
+namespace MessageStream.Sockets.Sandbox
 {
-    internal class SimpleMessageDeserializer : FixedSizeMessageDeserializer<SimpleMessage>
+    public class SimpleMessageDeserializer : FixedSizeMessageDeserializer<SimpleMessage>
     {
 
         protected override int MessageSize => 4;

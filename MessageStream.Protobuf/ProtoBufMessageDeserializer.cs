@@ -4,7 +4,7 @@ using System.IO;
 
 namespace MessageStream.ProtoBuf
 {
-    public class ProtoBufMessageDeserializer : StagedDeserializer<object>
+    public class ProtobufMessageDeserializer : StagedDeserializer<object>
     {
         
         public override int HeaderLength => 4;

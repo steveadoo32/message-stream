@@ -158,7 +158,7 @@ namespace MessageStream
 
                 bool wasClosing = closing;
 
-                await InnerCloseAsync().ConfigureAwait(false);
+                await CloseAsync().ConfigureAwait(false);
                 
                 await handleDisconnectionDelegate(exception, wasClosing);
             }
