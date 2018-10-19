@@ -25,5 +25,9 @@ namespace MessageStream
         /// </summary>
         public T Result { get; internal set; }
 
+        public DateTime ReceivedTimeUtc { get; internal set; }
+
+        public DateTime ParsedTimeUtc { get; internal set; }
+
     }
 }

@@ -16,15 +16,16 @@ namespace MessageStream.Message
 
         private readonly Dictionary<TIdentifier, DeserializeMessageDelegate> deserializerFuncs = new Dictionary<TIdentifier, DeserializeMessageDelegate>();
 
-        private readonly IMessageProvider<TIdentifier, TMessage> messageProvider;
         private readonly IMessageBodyDeserializer<TIdentifier>[] deserializers;
+
+        public IMessageProvider<TIdentifier, TMessage> MessageProvider { get; }
 
         public MessageBodyDeserializer(
             IMessageProvider<TIdentifier, TMessage> messageProvider,
             params IMessageBodyDeserializer<TIdentifier>[] deserializers
         )
         {
-            this.messageProvider = messageProvider;
+            MessageProvider = messageProvider;
             this.deserializers = deserializers;
             Initialize();
         }
@@ -34,6 +35,12 @@ namespace MessageStream.Message
             foreach (var deserializer in deserializers)
             {
                 DeserializeMessageDelegate deserializeDelegate = BuildDeserializeDelegate(deserializer);
+
+                if (deserializerFuncs.ContainsKey(deserializer.Identifier))
+                {
+                    throw new Exception($"Error adding deserializer, deserializer for identifier {deserializer.Identifier} already present.");
+                }
+
                 deserializerFuncs.Add(deserializer.Identifier, deserializeDelegate);
             }
         }
@@ -41,10 +48,12 @@ namespace MessageStream.Message
         public TMessage Deserialize(in ReadOnlySpan<byte> buffer, TState state, TIdentifier identifier)
         {
             DeserializeMessageDelegate deserializeFunc = null;
+
             if (!deserializerFuncs.TryGetValue(identifier, out deserializeFunc))
             {
                 return default;
             }
+
             return deserializeFunc(in buffer, state, identifier);
         }
 
@@ -79,7 +88,7 @@ namespace MessageStream.Message
             var messageProviderField = typeBuilder.DefineField("messageProvider", typeof(IMessageProvider<TIdentifier, TMessage>), FieldAttributes.Private);
 
             var constructor = typeBuilder.DefineConstructor(
-                MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName, CallingConventions.HasThis, new[] { deserializer.GetType(), messageProvider.GetType() });
+                MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName, CallingConventions.HasThis, new[] { deserializer.GetType(), MessageProvider.GetType() });
 
             var constructorIlGenerator = constructor.GetILGenerator();
 
@@ -157,7 +166,7 @@ namespace MessageStream.Message
             methodIlGenerator.Emit(OpCodes.Ret);
 
             var type = typeBuilder.CreateType();
-            var obj = Activator.CreateInstance(type, new object[] { deserializer, messageProvider });
+            var obj = Activator.CreateInstance(type, new object[] { deserializer, MessageProvider });
             
             return (DeserializeMessageDelegate) type.GetMethod(deserializeMethodName).CreateDelegate(typeof(DeserializeMessageDelegate), obj);
         }

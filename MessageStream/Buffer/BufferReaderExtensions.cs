@@ -37,6 +37,6 @@ namespace System.Buffers
 
             position = bufferReader.Position;
         }
-
+        
     }
 }

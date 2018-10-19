@@ -235,9 +235,7 @@ namespace MessageStream.Message
 
                 methodIlGenerator.Emit(OpCodes.Ldloc, stageLengthLocal);
                 methodIlGenerator.Emit(OpCodes.Stloc, lastStageLengthLocal);
-
-                methodIlGenerator.Emit(OpCodes.Call, typeof(Debugger).GetMethod("Break"));
-
+                
                 // Call the stage method. If first iteration we have no state to pass in
                 // If its the last iteration we don't need to pass in stageLength
                 methodIlGenerator.Emit(OpCodes.Ldarg_0);

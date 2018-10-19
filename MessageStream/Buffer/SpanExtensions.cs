@@ -12,14 +12,14 @@ namespace System
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static uint ReadUInt(this in ReadOnlySpan<byte> buffer, ref int index)
         {
-            int b1 = buffer[index + 0];
-            int b2 = buffer[index + 1];
-            int b3 = buffer[index + 2];
-            int b4 = buffer[index + 3];
+            byte b1 = buffer[index + 0];
+            byte b2 = buffer[index + 1];
+            byte b3 = buffer[index + 2];
+            byte b4 = buffer[index + 3];
 
             index += 4;
 
-            return ((uint)(byte)b1 << 24) | ((uint)(byte)b2 << 16) | ((uint)(byte)b3 << 8) | (byte)b4;
+            return ((uint)b1 << 24) | ((uint)b2 << 16) | ((uint)b3 << 8) | b4;
         }
 
         /// <summary>
@@ -29,10 +29,10 @@ namespace System
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static int ReadInt(this in ReadOnlySpan<byte> buffer, ref int index)
         {
-            int b1 = buffer[index + 0];
-            int b2 = buffer[index + 1];
-            int b3 = buffer[index + 2];
-            int b4 = buffer[index + 3];
+            byte b1 = buffer[index + 0];
+            byte b2 = buffer[index + 1];
+            byte b3 = buffer[index + 2];
+            byte b4 = buffer[index + 3];
 
             index += 4;
 
@@ -46,12 +46,27 @@ namespace System
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static unsafe short ReadShort(this in ReadOnlySpan<byte> buffer, ref int index)
         {
-            int b1 = buffer[index + 0];
-            int b2 = buffer[index + 1];
+            byte b1 = buffer[index + 0];
+            byte b2 = buffer[index + 1];
 
             index += 2;
 
             return (short)(((byte)b1 << 8) | (byte)b2);
+        }
+
+
+        /// <summary>
+        /// Reads a a short from the buffer. You need to be sure that you have enough in the buffer, this won't check bounds.
+        /// Increments index by 2
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static unsafe byte ReadByte(this in ReadOnlySpan<byte> buffer, ref int index)
+        {
+            byte b1 = buffer[index + 0];
+
+            index += 1;
+
+            return b1;
         }
 
         /// <summary>
@@ -92,6 +107,14 @@ namespace System
             buffer[index + 1] = (byte)(value & 0xFF);
 
             index += 2;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteByte(this in Span<byte> buffer, ref int index, byte value)
+        {
+            buffer[index + 0] = (byte)value;
+
+            index += 1;
         }
 
     }

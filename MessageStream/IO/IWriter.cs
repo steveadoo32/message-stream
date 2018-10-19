@@ -7,7 +7,7 @@ namespace MessageStream.IO
     public interface IWriter
     {
 
-        ValueTask WriteAsync(ReadOnlyMemory<byte> memory, CancellationToken cancellationToken);
+        ValueTask<int> WriteAsync(ReadOnlyMemory<byte> memory, CancellationToken cancellationToken);
 
     }
 }

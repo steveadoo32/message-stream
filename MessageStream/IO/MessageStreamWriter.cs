@@ -15,9 +15,11 @@ namespace MessageStream.IO
             Stream = stream;
         }
 
-        ValueTask IWriter.WriteAsync(ReadOnlyMemory<byte> memory, CancellationToken cancellationToken)
+        async ValueTask<int> IWriter.WriteAsync(ReadOnlyMemory<byte> memory, CancellationToken cancellationToken)
         {
-            return Stream.WriteAsync(memory, cancellationToken);
+            await Stream.WriteAsync(memory, cancellationToken).ConfigureAwait(false);
+
+            return memory.Length;
         }
 
     }

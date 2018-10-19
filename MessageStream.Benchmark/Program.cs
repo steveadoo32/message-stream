@@ -59,17 +59,7 @@ namespace MessageStream.Benchmark
                     {
                         break;
                     }
-
-                    //if (messageStream.Open)
-                    //{
-                    //    await messageStream.WriteAsync(messageResult.Result).ConfigureAwait(false);
-                    //}
-
-                    if (messageResult.Result != null)
-                    {
-                        //messageProvider.Return(messageResult.Result.MessageId, messageResult.Result);
-                    }
-
+                    
                     messageCounter++;
                 }
 

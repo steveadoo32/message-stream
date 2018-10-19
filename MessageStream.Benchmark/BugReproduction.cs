@@ -8,6 +8,10 @@ using System.Text;
 
 namespace MessageStream.Benchmark
 {
+
+    /// <summary>
+    /// Bug in .net core 2.0 :(. Need to wait for 3.
+    /// </summary>
     public class BugReproduction
     {
 
@@ -15,7 +19,7 @@ namespace MessageStream.Benchmark
         {
             var test = new TestClass<int>();
             var span = new ReadOnlySpan<byte>(new byte[] { 1 });
-            test.OuterDoSomething(span, 10);
+            test.OuterDoSomething(in span, 10);
         }
 
     }

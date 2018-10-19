@@ -2,6 +2,7 @@
 using MessageStream.Message;
 using System;
 using System.Buffers;
+using System.Collections.Generic;
 using System.IO.Pipelines;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -11,7 +12,7 @@ namespace MessageStream
 {
     public class MessageStream<T>
     {
-
+        
         private readonly IReader reader;
         private readonly IMessageDeserializer<T> deserializer;
         private readonly IWriter writer;
@@ -35,6 +36,10 @@ namespace MessageStream
         private Exception writeException;
         
         public bool Open { get; private set; }
+
+        protected IMessageDeserializer<T> Deserializer => deserializer;
+
+        protected IMessageSerializer<T> Serializer => serializer;
 
         /// <summary>
         /// 
@@ -120,23 +125,22 @@ namespace MessageStream
 
             readPipe.Reader.Complete();
             writePipe.Reader.Complete();
-
-            readPipe.Reset();
-            writePipe.Reset();
         }
 
         #endregion
 
         #region Read/Write
-        
+
         public virtual async ValueTask<MessageReadResult<T>> ReadAsync()
         {
+            DateTime timeReceived = DateTime.UtcNow;
+
             bool partialMessage = false;
             T message = default;
             SequencePosition read = default;
-
-            ReadResult result = await readPipe.Reader.ReadAsync().ConfigureAwait(false);
             
+            ReadResult result = await readPipe.Reader.ReadAsync().ConfigureAwait(false);
+
             // If the result is completed we could still have data in the buffer that we have try to read.
             while (!Decode(result.Buffer, out read, out message))
             {
@@ -152,18 +156,32 @@ namespace MessageStream
                     break;
                 }
             }
-            
-            readPipe.Reader.AdvanceTo(read);
-            
+
+            if (message != null)
+            {
+                await ProcessIncomingBufferAsync(message, result.Buffer.Slice(result.Buffer.Start, read)).ConfigureAwait(false);
+            }
+
+            var completed = result.Buffer.Length == 0 || partialMessage;
+
+            if (!completed)
+            {
+                readPipe.Reader.AdvanceTo(read);
+            }
+
+            DateTime parsedTime = DateTime.UtcNow;
+
             return new MessageReadResult<T>
             {
-                IsCompleted = result.Buffer.Length == 0 || partialMessage,
+                IsCompleted = completed,
                 Error = readException != null,
                 Exception = readException,
-                Result = message
+                Result = message,
+                ReceivedTimeUtc = timeReceived,
+                ParsedTimeUtc = parsedTime
             };
         }
-
+        
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool Decode(in ReadOnlySequence<byte> buffer, out SequencePosition read, out T message)
         {
@@ -172,8 +190,13 @@ namespace MessageStream
 
         public virtual async ValueTask<MessageWriteResult> WriteAsync(T message)
         {
+            // Serialize
+            var serializedMessage = SerializeMessage(message);
+
+            await ProcessOutgoingBufferAsync(message, serializedMessage).ConfigureAwait(false);
+
             // Write the data into the Writer
-            var result = await writePipe.Writer.WriteAsync(SerializeMessage(message)).ConfigureAwait(false);
+            var result = await writePipe.Writer.WriteAsync(serializedMessage).ConfigureAwait(false);
 
             await writePipe.Writer.FlushAsync().ConfigureAwait(false);
 
@@ -295,18 +318,42 @@ namespace MessageStream
             catch (Exception ex)
             {
                 cleanStop = cancellationToken.IsCancellationRequested;
+                
                 if (!cleanStop)
                 {
                     writeException = ex;
                     writeCancellationTokenSource.Cancel();
                 }
-
-                // Only complete the reader if there was an error writing.
-                // We do this so when we close the stream we can flush the rest of the bytes in the write pipe to the IWriter.
+                
                 writePipe.Reader.Complete();
             }
             
             return cleanStop;
+        }
+
+        #endregion
+
+        #region Virtual methods
+        
+        /// <summary>
+        /// Optionally processes an incoming buffer and it's associated message. The provided ReadOnlySequence is JUST the messages data,
+        /// This allows consumers to provide their own way of allocating memory for processing.
+        /// 
+        /// Useful for journaling incoming data or something like that.
+        /// </summary>
+        protected virtual ValueTask ProcessIncomingBufferAsync(T message, ReadOnlySequence<byte> buffer)
+        {
+            return new ValueTask();
+        }
+
+        /// <summary>
+        /// Optionally processes an outgoing buffer and it's associated message.
+        /// 
+        /// Useful for journaling outgoing data or something like that.
+        /// </summary>
+        protected virtual ValueTask ProcessOutgoingBufferAsync(T message, Memory<byte> buffer)
+        {
+            return new ValueTask();
         }
 
         #endregion
