@@ -10,12 +10,13 @@ namespace MessageStream.Benchmark
 {
     class Program
     {
-        public static async Task Main0(string[] args)
+        public static async Task Main(string[] args)
         {
             const int messageCount = 1_000_000;
             const int iterations = 10;
 
             int messageCounter = 0;
+            double messageParseTimeTotal = 0;
             var stopwatch = new Stopwatch();
 
             var messageProvider = new MessageProvider<int, IStagedBodyMessage>();
@@ -44,6 +45,7 @@ namespace MessageStream.Benchmark
                 writeStream.Position = 0;
 
                 messageCounter = 0;
+                messageParseTimeTotal = 0;
 
                 await messageStream.OpenAsync().ConfigureAwait(false);
 
@@ -59,7 +61,8 @@ namespace MessageStream.Benchmark
                     {
                         break;
                     }
-                    
+
+                    messageParseTimeTotal += (messageResult.ParsedTimeUtc - messageResult.ReceivedTimeUtc).TotalMilliseconds;
                     messageCounter++;
                 }
 
@@ -75,7 +78,7 @@ namespace MessageStream.Benchmark
 
                 stopwatch.Stop();
 
-                Console.WriteLine($"Done iteration: {messageCounter / stopwatch.Elapsed.TotalSeconds} messages/s. {messageCounter} total messages read.");
+                Console.WriteLine($"Done iteration: {messageCounter / stopwatch.Elapsed.TotalSeconds} messages/s. Avg message parse time: {messageParseTimeTotal / messageCounter}. {messageCounter} total messages read.");
             }
 
             readStream.Dispose();

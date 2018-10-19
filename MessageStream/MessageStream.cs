@@ -10,6 +10,13 @@ using System.Threading.Tasks;
 
 namespace MessageStream
 {
+
+    /// <summary>
+    /// TODO, its not ideal that you HAVE to have a both a writer and a reader, and not just one or the other.
+    /// We could probably provide different constructors that null out the writers/readers but its a lot of 
+    /// ugly logic to put in.
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
     public class MessageStream<T>
     {
         
@@ -42,7 +49,6 @@ namespace MessageStream
         protected IMessageSerializer<T> Serializer => serializer;
 
         /// <summary>
-        /// 
         /// </summary>
         /// <param name="writerCloseTimeout">How long should we wait for the writer to finish writing data before closing</param>
         public MessageStream(
@@ -141,23 +147,25 @@ namespace MessageStream
             
             ReadResult result = await readPipe.Reader.ReadAsync().ConfigureAwait(false);
 
-            // If the result is completed we could still have data in the buffer that we have try to read.
+            // Try to read one full message.
             while (!Decode(result.Buffer, out read, out message))
             {
+                // This case means we read a partial message, so try to read the rest
                 if (!result.IsCompleted)
                 {
                     readPipe.Reader.AdvanceTo(read, result.Buffer.End);
                     result = await readPipe.Reader.ReadAsync().ConfigureAwait(false);
                 }
+                // We didn't have enough data in the buffer, and the reader is closed so we can't read anymore, so mark it as a partial message.
                 else
                 {
-                    // We didn't have enough data in the buffer, and the reader is closed so we can't read anymore, so really mark it as complete now.
                     partialMessage = true;
                     break;
                 }
             }
 
-            if (message != null)
+            // Let the caller process the incoming buffer
+            if (!partialMessage)
             {
                 await ProcessIncomingBufferAsync(message, result.Buffer.Slice(result.Buffer.Start, read)).ConfigureAwait(false);
             }
@@ -177,6 +185,7 @@ namespace MessageStream
                 Error = readException != null,
                 Exception = readException,
                 Result = message,
+                ReadResult = !partialMessage,
                 ReceivedTimeUtc = timeReceived,
                 ParsedTimeUtc = parsedTime
             };

@@ -339,7 +339,7 @@ namespace MessageStream
                     }
                 }
 
-                if (result.Result != null && requests.Count > 0)
+                if (result.ReadResult && requests.Count > 0)
                 {
                     // Loop through the linked list and complete any requests that we match against.
                     var currentNode = requests.First;

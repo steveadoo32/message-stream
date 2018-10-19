@@ -15,7 +15,7 @@ namespace MessageStream.Benchmark
     public class BugReproduction
     {
 
-        public static void Main(string[] args)
+        public static void Main0(string[] args)
         {
             var test = new TestClass<int>();
             var span = new ReadOnlySpan<byte>(new byte[] { 1 });

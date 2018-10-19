@@ -17,7 +17,7 @@ namespace MessageStream.Tests.Simple
 
             var messageStream = new MessageStream<SimpleMessage>(
                     new MessageStreamReader(readStream),
-                    new SimpleMessageDeserializer(),
+                    new StructMessageDeserializer(),
                     new MessageStreamWriter(writeStream),
                     new SimpleMessageSerializer()
                 );
@@ -49,7 +49,7 @@ namespace MessageStream.Tests.Simple
             var eventedMessageStream = new EventMessageStream<SimpleMessage>
             (
                     new MessageStreamReader(readStream),
-                    new SimpleMessageDeserializer(),
+                    new StructMessageDeserializer(),
                     new MessageStreamWriter(writeStream),
                     new SimpleMessageSerializer(),
                     message =>

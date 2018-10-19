@@ -175,7 +175,7 @@ namespace MessageStream
                 var result = await base.ReadAsync().ConfigureAwait(false);
 
                 // Check that result isn't null. If it is we have a message we couldn't read.
-                if (result.Result != null)
+                if (result.ReadResult)
                 {
                     var handleTask = handleMessageDelegate(result.Result);
 

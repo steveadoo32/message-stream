@@ -1,10 +1,9 @@
 ﻿using System;
-using MessageStream.Message;
 
-namespace MessageStream.Benchmark.StagedBody
+namespace MessageStream.Tests.Structs.StagedBody
 {
 
-    public class TestMessage : IStagedBodyMessage
+    public struct TestMessage
     {
 
         public const int Id = 1;
@@ -14,13 +13,13 @@ namespace MessageStream.Benchmark.StagedBody
         public short MessageId => Id;
 
         public short Value { get; set; }
-        
+
     }
 
-    public class TestMessageDeserializer : StagedBodyMessageDeserializer.IStagedBodyMessageBodyDeserializer<TestMessage>
+    public struct TestMessageDeserializer : StagedBodyMessageDeserializer.IStagedBodyMessageBodyDeserializer<TestMessage>
     {
-        
-        int IMessageBodyDeserializer<int>.Identifier => TestMessage.Id;
+
+        public int Identifier => TestMessage.Id;
 
         public void DeserializeOnto(in ReadOnlySpan<byte> buffer, StagedBodyMessageHeader state, ref TestMessage message)
         {

@@ -124,7 +124,7 @@ namespace MessageStream.Tests.StagedBody
                 while (true)
                 {
                     var result = await messageStream.ReadAsync().ConfigureAwait(false);
-                    if (result.Result != null)
+                    if (result.ReadResult != null)
                     {
                         Interlocked.Increment(ref actualMessageCount);
                     }

@@ -8,7 +8,7 @@ namespace MessageStream.Tests.Simple
     public class SimpleTests
     {
         
-        [Fact(DisplayName = "Simple Deserializer Read")]
+        [Fact(DisplayName = "Simple Deserializer Write/Read")]
         public async Task TestSimpleStreamAsync()
         {
             var readStream = new MemoryStream();
@@ -16,7 +16,7 @@ namespace MessageStream.Tests.Simple
 
             var messageStream = new MessageStream<SimpleMessage>(
                     new MessageStreamReader(readStream),
-                    new SimpleMessageDeserializer(),
+                    new StructMessageDeserializer(),
                     new MessageStreamWriter(writeStream),
                     new SimpleMessageSerializer()
                 );
