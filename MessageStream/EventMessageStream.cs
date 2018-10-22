@@ -110,7 +110,10 @@ namespace MessageStream
 
             for(int i = 0; i < NumReaders; i++)
             {
-                readTasks.Add(Task.Run(OuterReadLoopAsync));
+                readTasks.Add(Task.Factory.StartNew(obj => OuterReadLoopAsync((OuterReadState) obj), new OuterReadState
+                {
+                    stream = this
+                }).Unwrap());
             }
 
             // Start the keep alive task
@@ -168,28 +171,32 @@ namespace MessageStream
             }
         }
 
-        private async Task OuterReadLoopAsync()
+        /// <summary>
+        /// We have to write the code in this way so the compiler doesn't generate a display class that allocates
+        /// on every read.
+        /// </summary>
+        private async Task OuterReadLoopAsync(OuterReadState state)
         {
             while (true)
             {
-                var result = await base.ReadAsync().ConfigureAwait(false);
+                state.result = await state.stream.ReadAsync().ConfigureAwait(false);
 
                 // Check that result isn't null. If it is we have a message we couldn't read.
-                if (result.ReadResult)
+                if (state.result.ReadResult)
                 {
-                    var handleTask = handleMessageDelegate(result.Result);
+                    state.handleTask = state.stream.handleMessageDelegate(state.result.Result);
 
-                    if (!HandleMessagesAsynchronously)
+                    if (!state.stream.HandleMessagesAsynchronously)
                     {
-                        bool returnToPool = await handleTask.ConfigureAwait(false);
+                        await state.handleTask.ConfigureAwait(false);
                     }
                 }
 
-                if (result.IsCompleted)
+                if (state.result.IsCompleted)
                 {
                     // We have to run this in an async task becuase CloseAsync blocks on the read tasks
                     // so we could end up in a deadlock.
-                    _ = Task.Run(() => OuterCloseAsync(result.Exception));
+                    _ = Task.Factory.StartNew(async obj => await (obj as OuterReadState).stream.OuterCloseAsync((obj as OuterReadState).result.Exception), state);
 
                     break;
                 }
@@ -218,5 +225,14 @@ namespace MessageStream
             }
         }
         
+        private class OuterReadState
+        {
+
+            public EventMessageStream<T> stream;
+            public MessageReadResult<T> result;
+            public ValueTask<bool> handleTask;
+
+        }
+
     }
 }
