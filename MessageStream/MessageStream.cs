@@ -1,4 +1,5 @@
-﻿using MessageStream.IO;
+﻿using MessageStream.EventLoop;
+using MessageStream.IO;
 using MessageStream.Message;
 using System;
 using System.Buffers;
@@ -19,29 +20,32 @@ namespace MessageStream
     /// <typeparam name="T"></typeparam>
     public class MessageStream<T>
     {
-        
+
         private readonly IReader reader;
         private readonly IMessageDeserializer<T> deserializer;
         private readonly IWriter writer;
         private readonly IMessageSerializer<T> serializer;
 
         private readonly PipeOptions readerPipeOptions;
-
         private readonly PipeOptions writerPipeOptions;
+
         private readonly TimeSpan writerCloseTimeout;
+
+        private readonly IEventLoop readEventLoop;
+        private readonly IEventLoop writeEventLoop;
 
         private Pipe readPipe;
         private Pipe writePipe;
 
-        private Task<bool> readTask;
-        private Task<bool> writeTask;
+        private EventLoopTask eventReadTask;
+        private EventLoopTask eventWriteTask;
 
         private CancellationTokenSource readCancellationTokenSource;
         private CancellationTokenSource writeCancellationTokenSource;
 
         private Exception readException;
         private Exception writeException;
-        
+
         public bool Open { get; private set; }
 
         protected IMessageDeserializer<T> Deserializer => deserializer;
@@ -58,7 +62,9 @@ namespace MessageStream
             IMessageSerializer<T> serializer,
             PipeOptions readerPipeOptions = null,
             PipeOptions writerPipeOptions = null,
-            TimeSpan? writerCloseTimeout = null
+            TimeSpan? writerCloseTimeout = null,
+            IEventLoop readEventLoop = null,
+            IEventLoop writeEventLoop = null
         )
         {
             this.reader = reader;
@@ -68,6 +74,10 @@ namespace MessageStream
             this.readerPipeOptions = readerPipeOptions ?? new PipeOptions();
             this.writerPipeOptions = writerPipeOptions ?? new PipeOptions();
             this.writerCloseTimeout = writerCloseTimeout ?? TimeSpan.FromSeconds(5);
+
+            Lazy<IEventLoop> eventLoopLazy = new Lazy<IEventLoop>(() => new TaskEventLoop(), false);
+            this.readEventLoop = readEventLoop ?? eventLoopLazy.Value;
+            this.writeEventLoop = writeEventLoop ?? eventLoopLazy.Value;
 
         }
 
@@ -86,22 +96,22 @@ namespace MessageStream
             writePipe = new Pipe(
                 writerPipeOptions
             );
-            
+
             readCancellationTokenSource = new CancellationTokenSource();
             writeCancellationTokenSource = new CancellationTokenSource();
 
-            readTask = ReadLoopAsync();
-            writeTask = WriteLoopAsync();
+            eventReadTask = readEventLoop.AddEventToLoop(ReadLoopAsync, CloseReadLoopAsync, readCancellationTokenSource.Token);
+            eventWriteTask = writeEventLoop.AddEventToLoop(WriteLoopAsync, CloseWriteLoopAsync, writeCancellationTokenSource.Token);
 
             // Check eagerly if any of the read/write tasks failed right away and throw their exceptions
-            if (readTask.IsFaulted)
+            if (eventReadTask.IsFaulted)
             {
-                throw readTask.Exception;
+                throw eventReadTask.Exception;
             }
 
-            if (writeTask.IsFaulted)
+            if (eventWriteTask.IsFaulted)
             {
-                throw writeTask.Exception;
+                throw eventWriteTask.Exception;
             }
 
             Open = true;
@@ -119,15 +129,15 @@ namespace MessageStream
             Open = false;
 
             readCancellationTokenSource.Cancel();
-            await readTask.ConfigureAwait(false);
+            await eventReadTask.StopAsync().ConfigureAwait(false);
             readCancellationTokenSource = null;
-            readTask = null;
+            eventReadTask = null;
 
             writePipe.Writer.Complete();
             writeCancellationTokenSource.CancelAfter(writerCloseTimeout);
-            await writeTask.ConfigureAwait(false);
+            await eventWriteTask.StopAsync().ConfigureAwait(false);
             writeCancellationTokenSource = null;
-            writeTask = null;
+            eventWriteTask = null;
 
             readPipe.Reader.Complete();
             writePipe.Reader.Complete();
@@ -144,7 +154,7 @@ namespace MessageStream
             bool partialMessage = false;
             T message = default;
             SequencePosition read = default;
-            
+
             ReadResult result = await readPipe.Reader.ReadAsync().ConfigureAwait(false);
 
             // Try to read one full message.
@@ -190,7 +200,7 @@ namespace MessageStream
                 ParsedTimeUtc = parsedTime
             };
         }
-        
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool Decode(in ReadOnlySequence<byte> buffer, out SequencePosition read, out T message)
         {
@@ -263,97 +273,77 @@ namespace MessageStream
 
         #region Read/Write Loops
 
-        private async Task<bool> ReadLoopAsync()
+        private async ValueTask ReadLoopAsync(CancellationToken cancellationToken)
         {
-            var cancellationToken = readCancellationTokenSource.Token;
-            bool cleanStop = false;
-            
-            try
+            // Request a block of memory from the readPipe's Writer
+            var memory = readPipe.Writer.GetMemory(readerPipeOptions.MinimumSegmentSize);
+
+            // Let the IReader read into the memory, returns how many bytes were actually read.
+            int len = await reader.ReadAsync(memory, cancellationToken).ConfigureAwait(false);
+
+            // If a reader returns len 0 then we should close the reader.
+            if (len == 0)
             {
-                while (!cancellationToken.IsCancellationRequested)
-                {
-                    // Request a block of memory from the readPipe's Writer
-                    var memory = readPipe.Writer.GetMemory(readerPipeOptions.MinimumSegmentSize);
-
-                    // Let the IReader read into the memory, returns how many bytes were actually read.
-                    int len = await reader.ReadAsync(memory, cancellationToken).ConfigureAwait(false);
-
-                    // If a reader returns len 0 then we should close the reader.
-                    if (len == 0)
-                    {
-                        break;
-                    }
-                    
-                    // Write the data into the Writer
-                    await readPipe.Writer.WriteAsync(memory.Slice(0, len), cancellationToken).ConfigureAwait(false);
-
-                    // Flush
-                    await readPipe.Writer.FlushAsync(cancellationToken).ConfigureAwait(false);
-                }
+                eventReadTask.Stop();
+                return;
             }
-            catch (Exception ex)
-            {
-                cleanStop = cancellationToken.IsCancellationRequested;
-                if (!cleanStop)
-                {
-                    readException = ex;
-                }
-            }
-            
+
+            // Write the data into the Writer
+            await readPipe.Writer.WriteAsync(memory.Slice(0, len), cancellationToken).ConfigureAwait(false);
+
+            // Flush
+            await readPipe.Writer.FlushAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        private ValueTask CloseReadLoopAsync(Exception ex)
+        {
+            readException = ex;
+
             readCancellationTokenSource.Cancel();
             readPipe.Writer.Complete();
 
-            return cleanStop;
+            return new ValueTask();
         }
 
-        private async Task<bool> WriteLoopAsync()
+        private async ValueTask WriteLoopAsync(CancellationToken cancellationToken)
         {
-            var cancellationToken = writeCancellationTokenSource.Token;
-            bool cleanStop = false;
+            // Read from the writePipe's Reader pipe
+            ReadResult result = await writePipe.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
 
-            try
+            // Write each buffer
+            foreach (var buffer in result.Buffer)
             {
-                while (!cancellationToken.IsCancellationRequested)
-                {
-                    // Read from the writePipe's Reader pipe
-                    ReadResult result = await writePipe.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
-
-                    // Write each buffer
-                    foreach (var buffer in result.Buffer)
-                    {
-                        await writer.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
-                    }
-
-                    // Complete the write
-                    writePipe.Reader.AdvanceTo(result.Buffer.End);
-
-                    // Flush the rest of the data, then close.
-                    if (result.IsCompleted)
-                    {
-                        break;
-                    }
-                }
+                await writer.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception ex)
+
+            // Complete the write
+            writePipe.Reader.AdvanceTo(result.Buffer.End);
+
+            // Flush the rest of the data, then close.
+            if (result.IsCompleted)
             {
-                cleanStop = cancellationToken.IsCancellationRequested;
-                
-                if (!cleanStop)
-                {
-                    writeException = ex;
-                    writeCancellationTokenSource.Cancel();
-                }
-                
-                writePipe.Reader.Complete();
+                eventWriteTask.Stop();
+                return;
             }
-            
-            return cleanStop;
+        }
+
+        private ValueTask CloseWriteLoopAsync(Exception ex)
+        {
+            if (ex != null)
+            {
+                writeException = ex;
+                writeCancellationTokenSource.Cancel();
+            }
+
+            writePipe.Reader.Complete();
+
+            return new ValueTask();
         }
 
         #endregion
 
         #region Virtual methods
-        
+
         /// <summary>
         /// Optionally processes an incoming buffer and it's associated message. The provided ReadOnlySequence is JUST the messages data,
         /// This allows consumers to provide their own way of allocating memory for processing.
