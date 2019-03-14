@@ -24,6 +24,9 @@ EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MessageStream.Sockets.Sandbox.Client", "MessageStream.Sockets.Sandbox.Client\MessageStream.Sockets.Sandbox.Client.csproj", "{00BDC443-40B2-4B3D-B344-D3B067E3202A}"
 EndProject
 Global
+	GlobalSection(Performance) = preSolution
+		HasPerformanceSessions = true
+	EndGlobalSection
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
 		Release|Any CPU = Release|Any CPU
