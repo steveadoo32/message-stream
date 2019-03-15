@@ -1,4 +1,5 @@
-﻿using MessageStream.Message;
+﻿using MessageStream.EventLoop;
+using MessageStream.Message;
 using System;
 using System.Collections.Generic;
 using System.IO.Pipelines;
@@ -29,8 +30,12 @@ namespace MessageStream.Sockets.Server
             TimeSpan? writerCloseTimeout = null,
             ChannelOptions readerChannelOptions = null,
             ChannelOptions writerChannelOptions = null,
-            TimeSpan? readerFlushTimeout = null
-        ) : base(socketReaderWriter, deserializer, socketReaderWriter, serializer, handleMessageDelegate, handleDisconnectionDelegate, handleKeepAliveDelegate, numReaders, handleMessagesAsynchronously, keepAliveTimeSpan, readerPipeOptions, writerPipeOptions, writerCloseTimeout, readerChannelOptions, writerChannelOptions, readerFlushTimeout)
+            TimeSpan? readerFlushTimeout = null,
+            IEventLoop readEventLoop = null,
+            IEventLoop writeEventLoop = null,
+            IEventLoop channelReadEventLoop = null,
+            IEventLoop channelWriteEventLoop = null
+        ) : base(socketReaderWriter, deserializer, socketReaderWriter, serializer, handleMessageDelegate, handleDisconnectionDelegate, handleKeepAliveDelegate, numReaders, handleMessagesAsynchronously, keepAliveTimeSpan, readerPipeOptions, writerPipeOptions, writerCloseTimeout, readerChannelOptions, writerChannelOptions, readerFlushTimeout, readEventLoop, writeEventLoop, channelReadEventLoop, channelWriteEventLoop)
         {
             this.socketReaderWriter = socketReaderWriter;
         }
@@ -50,8 +55,12 @@ namespace MessageStream.Sockets.Server
             TimeSpan? writerCloseTimeout = null,
             ChannelOptions readerChannelOptions = null,
             ChannelOptions writerChannelOptions = null,
-            TimeSpan? readerFlushTimeout = null
-        ) : this(new ClientSocketReaderWriter(socket), deserializer, serializer, handleMessageDelegate, handleDisconnectionDelegate, handleKeepAliveDelegate, numReaders, handleMessagesAsynchronously, keepAliveTimeSpan, readerPipeOptions, writerPipeOptions, writerCloseTimeout, readerChannelOptions, writerChannelOptions, readerFlushTimeout)
+            TimeSpan? readerFlushTimeout = null,
+            IEventLoop readEventLoop = null,
+            IEventLoop writeEventLoop = null,
+            IEventLoop channelReadEventLoop = null,
+            IEventLoop channelWriteEventLoop = null
+        ) : this(new ClientSocketReaderWriter(socket), deserializer, serializer, handleMessageDelegate, handleDisconnectionDelegate, handleKeepAliveDelegate, numReaders, handleMessagesAsynchronously, keepAliveTimeSpan, readerPipeOptions, writerPipeOptions, writerCloseTimeout, readerChannelOptions, writerChannelOptions, readerFlushTimeout, readEventLoop, writeEventLoop, channelReadEventLoop, channelWriteEventLoop)
         {
         }
 

@@ -1,4 +1,5 @@
-﻿using MessageStream.IO;
+﻿using MessageStream.EventLoop;
+using MessageStream.IO;
 using MessageStream.Message;
 using System;
 using System.Collections.Concurrent;
@@ -24,11 +25,14 @@ namespace MessageStream
         private readonly TimeSpan? readerFlushTimeout;
         private readonly ChannelOptions readerChannelOptions;
         private Channel<MessageReadResult<T>> readChannel;
-        private Task channelReadTask;
+        private EventLoopTask channelEventReadTask;
 
         private readonly ChannelOptions writerChannelOptions;
         private Channel<MessageWriteRequest> writeChannel;
-        private Task channelWriteTask;
+        private EventLoopTask channelEventWriteTask;
+
+        private readonly IEventLoop channelReadEventLoop;
+        private readonly IEventLoop channelWriteEventLoop;
 
         private ConcurrentQueue<MessageWriteRequestResult> requestQueue;
 
@@ -53,12 +57,20 @@ namespace MessageStream
             TimeSpan? writerCloseTimeout = null,
             ChannelOptions readerChannelOptions = null,
             ChannelOptions writerChannelOptions = null,
-            TimeSpan? readerFlushTimeout = null)
-            : base(reader, deserializer, writer, serializer, readerPipeOptions, writerPipeOptions, writerCloseTimeout)
+            TimeSpan? readerFlushTimeout = null,
+            IEventLoop readEventLoop = null,
+            IEventLoop writeEventLoop = null,
+            IEventLoop channelReadEventLoop = null,
+            IEventLoop channelWriteEventLoop = null)
+            : base(reader, deserializer, writer, serializer, readerPipeOptions, writerPipeOptions, writerCloseTimeout, readEventLoop, writeEventLoop)
         {
             this.readerChannelOptions = readerChannelOptions ?? DefaultChannelOptions;
             this.writerChannelOptions = writerChannelOptions ?? DefaultChannelOptions;
             this.readerFlushTimeout = readerFlushTimeout;
+
+            Lazy<IEventLoop> eventLoopLazy = new Lazy<IEventLoop>(() => new WhileEventLoop(), false);
+            this.channelReadEventLoop = channelReadEventLoop ?? eventLoopLazy.Value;
+            this.channelWriteEventLoop = channelWriteEventLoop ?? eventLoopLazy.Value;
         }
 
         #region Open/Close
@@ -84,8 +96,8 @@ namespace MessageStream
 
             requestQueue = new ConcurrentQueue<MessageWriteRequestResult>();
 
-            channelReadTask = Task.Run(ReadLoopAsync);
-            channelWriteTask = Task.Run(WriteLoopAsync);
+            channelEventReadTask = channelReadEventLoop.AddEventToLoop(ReadLoopAsync, CloseReadLoopAsync, new ReadLoopState());
+            channelEventWriteTask = channelWriteEventLoop.AddEventToLoop(WriteLoopAsync, CloseWriteLoopAsync);
         }
 
         public async override Task CloseAsync()
@@ -99,12 +111,12 @@ namespace MessageStream
             // Try to write the rest of the messages before closing.
             writeChannel.Writer.Complete();
             await writeChannel.Reader.Completion.ConfigureAwait(false);
-            
+
             writeChannel = null;
 
             // Close the underlying stream
             await base.CloseAsync().ConfigureAwait(false);
-            
+
             // There could be messages left in the buffer so we have a timeout that will try to read the rest
             if (readerFlushTimeout != null)
             {
@@ -117,13 +129,13 @@ namespace MessageStream
             {
                 await readChannel.Reader.Completion.ConfigureAwait(false);
             }
-            
+
             readChannel = null;
 
-            await Task.WhenAll(channelReadTask, channelWriteTask).ConfigureAwait(false);
-            
-            channelReadTask = null;
-            channelWriteTask = null;
+            await Task.WhenAll(channelEventReadTask.StopAsync().AsTask(), channelEventWriteTask.StopAsync().AsTask()).ConfigureAwait(false);
+
+            channelEventReadTask = null;
+            channelEventWriteTask = null;
 
             requestQueue = null;
         }
@@ -304,129 +316,115 @@ namespace MessageStream
 
         #region Read/Write loops
 
-        private async Task ReadLoopAsync()
+        private async ValueTask<bool> ReadLoopAsync(ReadLoopState state, CancellationToken cancellationToken)
         {
             var writer = readChannel.Writer;
 
-            // Use a linked list because 99% of the time we should be matching the requests in order,
-            // so we'll end up removing the first element of the list.
-            var requests = new LinkedList<MessageWriteRequestResult>();
+            var result = await base.ReadAsync().ConfigureAwait(false);
+            await writer.WriteAsync(result).ConfigureAwait(false);
 
-            int requestQueueDequeueCount = 0;
-            int requestQueueDequeueMax = 0;
-
-            while (true)
+            if (!requestQueue.IsEmpty)
             {
-                var result = await base.ReadAsync().ConfigureAwait(false);
+                // Only dequeue the ones in this batch. We can end up being stuck here if there are 
+                // messages being written at a faster rate than we read
+                state.requestQueueDequeueCount = 0;
+                state.requestQueueDequeueMax = requestQueue.Count;
 
-                await writer.WriteAsync(result).ConfigureAwait(false);
-
-                if (!requestQueue.IsEmpty)
+                while (requestQueue.TryDequeue(out var request))
                 {
-                    // Only dequeue the ones in this batch. We can end up being stuck here if there are 
-                    // messages being written at a faster rate than we read
-                    requestQueueDequeueCount = 0;
-                    requestQueueDequeueMax = requestQueue.Count;
+                    state.requests.AddLast(request);
 
-                    while (requestQueue.TryDequeue(out var request))
+                    if (state.requestQueueDequeueCount >= state.requestQueueDequeueMax)
                     {
-                        requests.AddLast(request);
-
-                        if (requestQueueDequeueCount >= requestQueueDequeueMax)
-                        {
-                            break;
-                        }
+                        break;
                     }
-                }
-
-                if (result.ReadResult && requests.Count > 0)
-                {
-                    // Loop through the linked list and complete any requests that we match against.
-                    var currentNode = requests.First;
-                    var nextNode = requests.First;
-                    while (currentNode != null)
-                    {
-                        nextNode = currentNode.Next;
-
-                        // If we match we need to set the result and remove the request
-                        if (currentNode.Value.resultMatchFunc(result.Result))
-                        {
-                            currentNode.Value.resultTcs.TrySetResult(result);
-
-                            requests.Remove(currentNode);
-                        }
-
-                        // If the timeout was hit on the tcs, then remove it so we don't keep processing it.
-                        if (currentNode.Value.resultTcs.Task.IsCanceled)
-                        {
-                            requests.Remove(currentNode);
-                        }
-
-                        currentNode = nextNode;
-                    }
-                }
-
-                if (result.IsCompleted)
-                {
-                    break;
                 }
             }
 
+            if (result.ReadResult && state.requests.Count > 0)
+            {
+                // Loop through the linked list and complete any requests that we match against.
+                var currentNode = state.requests.First;
+                var nextNode = state.requests.First;
+                while (currentNode != null)
+                {
+                    nextNode = currentNode.Next;
+
+                    // If we match we need to set the result and remove the request
+                    if (currentNode.Value.resultMatchFunc(result.Result))
+                    {
+                        currentNode.Value.resultTcs.TrySetResult(result);
+
+                        state.requests.Remove(currentNode);
+                    }
+
+                    // If the timeout was hit on the tcs, then remove it so we don't keep processing it.
+                    if (currentNode.Value.resultTcs.Task.IsCanceled)
+                    {
+                        state.requests.Remove(currentNode);
+                    }
+
+                    currentNode = nextNode;
+                }
+            }
+
+            return result.IsCompleted;
+        }
+
+        private ValueTask CloseReadLoopAsync(ReadLoopState state, Exception arg)
+        {
             // Clear out the rest of the waiting requests.
             while (requestQueue.TryDequeue(out var request))
             {
-                requests.AddLast(request);
+                state.requests.AddLast(request);
             }
 
-            foreach (var request in requests)
+            foreach (var request in state.requests)
             {
                 request.resultTcs.TrySetCanceled();
             }
 
-            requests.Clear();
-            
-            writer.Complete();
+            state.requests.Clear();
+
+            readChannel.Writer.Complete();
+
+            return new ValueTask();
         }
 
-        private async Task WriteLoopAsync()
+        private async ValueTask<bool> WriteLoopAsync(CancellationToken cancellationToken)
         {
             var reader = writeChannel.Reader;
 
-            try
+            var finished = await reader.WaitToReadAsync().ConfigureAwait(false);
+
+            if (!finished || !reader.TryRead(out var writeRequest))
             {
-                while (true)
-                {
-                    var finished = await reader.WaitToReadAsync().ConfigureAwait(false);
-
-                    if (!finished || !reader.TryRead(out var writeRequest))
-                    {
-                        break;
-                    }
-
-                    if (writeRequest.resultTcs != null)
-                    {
-                        requestQueue.Enqueue(new MessageWriteRequestResult(writeRequest.resultTcs, writeRequest.resultMatchFunc));
-                    }
-
-                    var writeResult = await base.WriteAsync(writeRequest.message).ConfigureAwait(false);
-
-                    if (writeRequest.writeTcs != null)
-                    {
-                        writeRequest.writeTcs.TrySetResult(writeResult);
-                    }
-
-                    if (writeResult.IsCompleted)
-                    {
-                        break;
-                    }
-                }
-            }
-            catch
-            {
-                // This happens if the underlying stream is closed and we have a message in flight.
-                // We can just ignore it.
+                return true;
             }
 
+            if (writeRequest.resultTcs != null)
+            {
+                requestQueue.Enqueue(new MessageWriteRequestResult(writeRequest.resultTcs, writeRequest.resultMatchFunc));
+            }
+
+            var writeResult = await base.WriteAsync(writeRequest.message).ConfigureAwait(false);
+
+            if (writeRequest.writeTcs != null)
+            {
+                writeRequest.writeTcs.TrySetResult(writeResult);
+            }
+
+            if (writeResult.IsCompleted)
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private async ValueTask CloseWriteLoopAsync(Exception arg)
+        {
+            var reader = writeChannel.Reader;
             while (reader.TryRead(out var writeRequest))
             {
                 var writeResult = await base.WriteAsync(writeRequest.message).ConfigureAwait(false);
@@ -474,6 +472,13 @@ namespace MessageStream
                 this.resultMatchFunc = resultMatchFunc;
             }
 
+        }
+
+        internal class ReadLoopState
+        {
+            internal LinkedList<MessageWriteRequestResult> requests = new LinkedList<MessageWriteRequestResult>();
+            internal int requestQueueDequeueCount = 0;
+            internal int requestQueueDequeueMax = 0;
         }
 
     }

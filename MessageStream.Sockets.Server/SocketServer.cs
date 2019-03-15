@@ -1,4 +1,5 @@
-﻿using MessageStream.Message;
+﻿using MessageStream.EventLoop;
+using MessageStream.Message;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -12,7 +13,7 @@ namespace MessageStream.Sockets.Server
 {
     public class SocketServer<T>
     {
-        
+
         /// <summary>
         /// Called when disconnections happen on the reader. This will close the stream for you.
         /// </summary>
@@ -26,6 +27,12 @@ namespace MessageStream.Sockets.Server
         public delegate ValueTask HandleConnectionDisconnectionAsync(Connection connection, Exception ex, bool expected);
 
         public delegate ValueTask HandleConnectionKeepAliveAsync(Connection connection);
+
+        private readonly IEventLoop readEventLoop = new QueueEventLoop(readers: 4);
+        private readonly IEventLoop writeEventLoop = new QueueEventLoop(readers: 4);
+
+        private readonly IEventLoop channelReadEventLoop = new QueueEventLoop(readers: 4);
+        private readonly IEventLoop channelWriteEventLoop = new QueueEventLoop(readers: 4);
 
         private readonly HandleConnectionAsync handleConnectionDelegate;
         private readonly HandleConnectionMessageAsync handleConnectionMessageDelegate;
@@ -129,7 +136,11 @@ namespace MessageStream.Sockets.Server
                         (ex, expected) => HandleConnectionDisconnectAsync(connection, ex, expected),
                         () => HandleKeepAliveAsync(connection),
                         1,
-                        false
+                        false,
+                        readEventLoop: readEventLoop,
+                        writeEventLoop: writeEventLoop,
+                        channelReadEventLoop: channelReadEventLoop,
+                        channelWriteEventLoop: channelWriteEventLoop
                     );
 
                     connection.MessageStream = messageStream;
@@ -140,7 +151,6 @@ namespace MessageStream.Sockets.Server
                     }
 
                     await messageStream.OpenAsync().ConfigureAwait(false);
-
                     await handleConnectionDelegate(connection).ConfigureAwait(false);
                 }
                 catch (Exception ex)

@@ -7,13 +7,14 @@ using System.Threading.Tasks;
 namespace MessageStream.EventLoop
 {
     /// <summary>
+    /// Just runs the loops in a while() loop until cancelled or error.
     /// This event loop is better for a client connecting to a server(only one loop really).
     /// Use the QueueEventLoop if you expect multiple connections(eg, a server)
     /// </summary>
     public class WhileEventLoop : IEventLoop
     {
 
-        EventLoopTask<T> IEventLoop.AddEventToLoop<T>(Func<T, CancellationToken, ValueTask> eventHandler, T state, Func<Exception, ValueTask> closeHandler, CancellationToken cancellationToken)
+        EventLoopTask<T> IEventLoop.AddEventToLoop<T>(Func<T, CancellationToken, ValueTask<bool>> eventHandler, Func<T, Exception, ValueTask> closeHandler, T state, CancellationToken cancellationToken)
         {
             var eventLoopTask = new EventLoopTask<T>(eventHandler, state, closeHandler, cancellationToken);
             
@@ -22,7 +23,7 @@ namespace MessageStream.EventLoop
             return eventLoopTask;
         }
 
-        EventLoopTask IEventLoop.AddEventToLoop(Func<CancellationToken, ValueTask> eventHandler, Func<Exception, ValueTask> closeHandler, CancellationToken cancellationToken)
+        EventLoopTask IEventLoop.AddEventToLoop(Func<CancellationToken, ValueTask<bool>> eventHandler, Func<Exception, ValueTask> closeHandler, CancellationToken cancellationToken)
         {
             var eventLoopTask = new EventLoopTask(eventHandler, closeHandler, cancellationToken);
 

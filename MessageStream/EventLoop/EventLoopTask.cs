@@ -8,7 +8,7 @@ namespace MessageStream.EventLoop
     public class EventLoopTask 
     {
 
-        private readonly Func<CancellationToken, ValueTask> eventHandler;
+        private readonly Func<CancellationToken, ValueTask<bool>> eventHandler;
         private readonly Func<Exception, ValueTask> closeHandler;
 
         internal CancellationToken CancellationToken { get; }
@@ -21,7 +21,7 @@ namespace MessageStream.EventLoop
 
         public Exception Exception { get; private set; }
 
-        public EventLoopTask(Func<CancellationToken, ValueTask> eventHandler, Func<Exception, ValueTask> closeHandler, CancellationToken cancellationToken)
+        public EventLoopTask(Func<CancellationToken, ValueTask<bool>> eventHandler, Func<Exception, ValueTask> closeHandler, CancellationToken cancellationToken)
         {
             this.eventHandler = eventHandler;
             this.closeHandler = closeHandler;
@@ -36,7 +36,12 @@ namespace MessageStream.EventLoop
                 return true;
             }
 
-            await eventHandler(CancellationToken).ConfigureAwait(false);
+            bool stop = await eventHandler(CancellationToken).ConfigureAwait(false);
+
+            if (stop)
+            {
+                Stop();
+            }
 
             // The event handler might stop the loop, so just return Stopped.
             return Stopped || CancellationToken.IsCancellationRequested;
@@ -72,8 +77,8 @@ namespace MessageStream.EventLoop
     public class EventLoopTask<T> : EventLoopTask
     {
         
-        public EventLoopTask(Func<T, CancellationToken, ValueTask> eventHandler, T state, Func<Exception, ValueTask> closeHandler, CancellationToken cancellationToken)
-            : base(token => eventHandler(state, token), closeHandler, cancellationToken)
+        public EventLoopTask(Func<T, CancellationToken, ValueTask<bool>> eventHandler, T state, Func<T, Exception, ValueTask> closeHandler, CancellationToken cancellationToken)
+            : base(token => eventHandler(state, token), ex => closeHandler(state, ex), cancellationToken)
         {
         }
 

@@ -1,4 +1,5 @@
 ﻿using MessageStream;
+using MessageStream.EventLoop;
 using MessageStream.IO;
 using MessageStream.Message;
 using System;
@@ -79,8 +80,12 @@ namespace MessageStream
             TimeSpan? writerCloseTimeout = null, 
             ChannelOptions readerChannelOptions = null, 
             ChannelOptions writerChannelOptions = null, 
-            TimeSpan? readerFlushTimeout = null)
-            : base(reader, deserializer, writer, serializer, readerPipeOptions, writerPipeOptions, writerCloseTimeout, readerChannelOptions, writerChannelOptions, readerFlushTimeout)
+            TimeSpan? readerFlushTimeout = null,
+            IEventLoop readEventLoop = null,
+            IEventLoop writeEventLoop = null,
+            IEventLoop channelReadEventLoop = null,
+            IEventLoop channelWriteEventLoop = null)
+            : base(reader, deserializer, writer, serializer, readerPipeOptions, writerPipeOptions, writerCloseTimeout, readerChannelOptions, writerChannelOptions, readerFlushTimeout, readEventLoop, writeEventLoop, channelReadEventLoop, channelWriteEventLoop)
         {
             this.handleMessageDelegate = handleMessageDelegate;
             this.handleDisconnectionDelegate = handleDisconnectionDelegate;

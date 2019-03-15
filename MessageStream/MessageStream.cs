@@ -273,7 +273,7 @@ namespace MessageStream
 
         #region Read/Write Loops
 
-        private async ValueTask ReadLoopAsync(CancellationToken cancellationToken)
+        private async ValueTask<bool> ReadLoopAsync(CancellationToken cancellationToken)
         {
             // Request a block of memory from the readPipe's Writer
             var memory = readPipe.Writer.GetMemory(readerPipeOptions.MinimumSegmentSize);
@@ -284,8 +284,7 @@ namespace MessageStream
             // If a reader returns len 0 then we should close the reader.
             if (len == 0)
             {
-                eventReadTask.Stop();
-                return;
+                return true;
             }
 
             // Write the data into the Writer
@@ -293,6 +292,8 @@ namespace MessageStream
 
             // Flush
             await readPipe.Writer.FlushAsync(cancellationToken).ConfigureAwait(false);
+
+            return false;
         }
 
         private ValueTask CloseReadLoopAsync(Exception ex)
@@ -305,7 +306,7 @@ namespace MessageStream
             return new ValueTask();
         }
 
-        private async ValueTask WriteLoopAsync(CancellationToken cancellationToken)
+        private async ValueTask<bool> WriteLoopAsync(CancellationToken cancellationToken)
         {
             // Read from the writePipe's Reader pipe
             ReadResult result = await writePipe.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
@@ -322,9 +323,10 @@ namespace MessageStream
             // Flush the rest of the data, then close.
             if (result.IsCompleted)
             {
-                eventWriteTask.Stop();
-                return;
+                return true;
             }
+
+            return false;
         }
 
         private ValueTask CloseWriteLoopAsync(Exception ex)

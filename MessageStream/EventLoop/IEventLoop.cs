@@ -10,13 +10,13 @@ namespace MessageStream.EventLoop
     {
 
         EventLoopTask<T> AddEventToLoop<T>(
-            Func<T, CancellationToken, ValueTask> eventHandler,
-            T state, 
-            Func<Exception, ValueTask> closeHandler,
+            Func<T, CancellationToken, ValueTask<bool>> eventHandler,
+            Func<T, Exception, ValueTask> closeHandler,
+            T state,
             CancellationToken cancellationToken = default);
 
         EventLoopTask AddEventToLoop(
-            Func<CancellationToken, ValueTask> eventHandler,
+            Func<CancellationToken, ValueTask<bool>> eventHandler,
             Func<Exception, ValueTask> closeHandler,
             CancellationToken cancellationToken = default);
 
