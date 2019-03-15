@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -89,7 +90,7 @@ namespace MessageStream.Sockets.Server
 
         public async Task CloseAsync()
         {
-
+            socketListener.Close();
         }
 
         private ValueTask HandleKeepAliveAsync(Connection connection)
@@ -137,6 +138,7 @@ namespace MessageStream.Sockets.Server
                     if (!Connections.TryAdd(clientId, connection))
                     {
                         // TODO handle this. Shouldn't ever happen, but we should just disconnect the client.
+                        Debugger.Break();
                     }
 
                     await messageStream.OpenAsync().ConfigureAwait(false);

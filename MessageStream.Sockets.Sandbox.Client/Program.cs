@@ -24,14 +24,17 @@ namespace MessageStream.Sockets.Sandbox.Client
 
             var clients = new List<SocketClientSandbox>();
 
-            for (int i = 0; i < 100; i++)
+            Task.Run(async () =>
             {
-                Task.Run(async () =>
+                for (int i = 0; i < 1000; i++)
                 {
                     var clientSandbox = new SocketClientSandbox("127.0.0.1", port);
+                    clients.Add(clientSandbox);
                     await clientSandbox.StartAsync().ConfigureAwait(false);
-                });
-            }
+                }
+
+                await Task.WhenAll(clients.Select(c => c.SendMessagesAsync()).ToList()).ConfigureAwait(false);
+            });
 
             Console.WriteLine("Press any key to exit.");
             Console.ReadLine();

@@ -46,13 +46,10 @@ namespace MessageStream.Sockets.Sandbox
                 true);
 
             await clientStream.OpenAsync().ConfigureAwait(false);
-
-            await SendMessagesAsync().ConfigureAwait(false);
         }
 
-        private async Task SendMessagesAsync()
+        public async Task SendMessagesAsync()
         {
-            int count = 10000;
             for (int i = 0; i < 1000000; i++)
             {
                 await clientStream.WriteAsync(new SimpleMessage
@@ -60,12 +57,7 @@ namespace MessageStream.Sockets.Sandbox
                     Id = 1,
                     Value = 5
                 }).ConfigureAwait(false);
-                count--;
-                if (count == 0)
-                {
-                    await Task.Delay(1000).ConfigureAwait(false);
-                    count = 10000;
-                }
+                //await Task.Delay(100).ConfigureAwait(false);
             }
         }
 
