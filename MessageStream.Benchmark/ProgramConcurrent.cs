@@ -58,7 +58,7 @@ namespace MessageStream.Benchmark
                     while (true)
                     {
                         var result = await messageStream.ReadAsync().ConfigureAwait(false);
-                        if (result.ReadResult != null)
+                        if (result.ReadResult)
                         {
                             Interlocked.Increment(ref messageCounter);
                         }

@@ -29,7 +29,7 @@ namespace MessageStream.EventLoop
             return eventLoopTask;
         }
 
-        private void ProcessEventLoopTaskAsync<T>(EventLoopTask<T> eventLoopTask)
+        private void ProcessEventLoopTaskAsync(EventLoopTask eventLoopTask)
         {
             try
             {
@@ -39,7 +39,7 @@ namespace MessageStream.EventLoop
                     ProcessEventLoopTaskResult(eventLoopTask, task.IsCompletedSuccessfully ? task.Result : true, task.IsCanceled, task.IsFaulted, task.IsFaulted ? task.AsTask().Exception : null);
                     return;
                 }
-                task.AsTask().ContinueWith(ProcessEventLoopTaskResult<T>, eventLoopTask);
+                task.AsTask().ContinueWith(ProcessEventLoopTaskResult, eventLoopTask);
             }
             catch (Exception ex)
             {
@@ -47,12 +47,12 @@ namespace MessageStream.EventLoop
             }
         }
 
-        private void ProcessEventLoopTaskResult<T>(Task<bool> task, object eventLoopTask)
+        private void ProcessEventLoopTaskResult(Task<bool> task, object eventLoopTask)
         {
-            ProcessEventLoopTaskResult((EventLoopTask<T>) eventLoopTask, task.IsCompletedSuccessfully ? task.Result : true, task.IsCanceled, task.IsFaulted, task.IsFaulted ? task.Exception : null);
+            ProcessEventLoopTaskResult((EventLoopTask) eventLoopTask, task.IsCompletedSuccessfully ? task.Result : true, task.IsCanceled, task.IsFaulted, task.IsFaulted ? task.Exception : null);
         }
 
-        private async void ProcessEventLoopTaskResult<T>(EventLoopTask<T> task, bool stop, bool cancelled, bool faulted, Exception ex)
+        private async void ProcessEventLoopTaskResult(EventLoopTask task, bool stop, bool cancelled, bool faulted, Exception ex)
         {
             if (stop || cancelled || faulted)
             {

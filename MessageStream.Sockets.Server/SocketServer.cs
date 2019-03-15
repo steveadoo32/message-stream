@@ -87,9 +87,9 @@ namespace MessageStream.Sockets.Server
             return Task.CompletedTask;
         }
 
-        public async Task CloseAsync()
+        public Task CloseAsync()
         {
-
+            return Task.CompletedTask;
         }
 
         private ValueTask HandleKeepAliveAsync(Connection connection)
@@ -154,9 +154,9 @@ namespace MessageStream.Sockets.Server
             }
         }
 
-        private async Task<bool> HandleAcceptExceptionAsync(Exception ex)
+        private Task<bool> HandleAcceptExceptionAsync(Exception ex)
         {
-            return false;
+            return Task.FromResult(false);
         }
 
         #endregion

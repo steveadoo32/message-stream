@@ -4,11 +4,11 @@ using System.Threading.Tasks;
 
 namespace MessageStream.EventLoop
 {
-    public class EventLoopTask<T>
+
+    public class EventLoopTask 
     {
 
-        private readonly Func<T, CancellationToken, ValueTask> eventHandler;
-        private readonly T state;
+        private readonly Func<CancellationToken, ValueTask> eventHandler;
         private readonly Func<Exception, ValueTask> closeHandler;
 
         internal CancellationToken CancellationToken { get; }
@@ -21,10 +21,9 @@ namespace MessageStream.EventLoop
 
         public Exception Exception { get; private set; }
 
-        public EventLoopTask(Func<T, CancellationToken, ValueTask> eventHandler, T state, Func<Exception, ValueTask> closeHandler, CancellationToken cancellationToken)
+        public EventLoopTask(Func<CancellationToken, ValueTask> eventHandler, Func<Exception, ValueTask> closeHandler, CancellationToken cancellationToken)
         {
             this.eventHandler = eventHandler;
-            this.state = state;
             this.closeHandler = closeHandler;
             CancellationToken = cancellationToken;
             StoppedTcs = new TaskCompletionSource<bool>();
@@ -32,21 +31,21 @@ namespace MessageStream.EventLoop
 
         internal async ValueTask<bool> LoopAsync()
         {
-            if (Stopped)
+            if (Stopped || CancellationToken.IsCancellationRequested)
             {
                 return true;
             }
 
-            await eventHandler(state, CancellationToken).ConfigureAwait(false);
+            await eventHandler(CancellationToken).ConfigureAwait(false);
 
             // The event handler might stop the loop, so just return Stopped.
-            return Stopped;
+            return Stopped || CancellationToken.IsCancellationRequested;
         }
 
         internal ValueTask StoppedAsync(Exception ex)
         {
-            IsFaulted = ex != null;
-            Exception = ex;
+            IsFaulted = ex != null && !CancellationToken.IsCancellationRequested;
+            Exception = CancellationToken.IsCancellationRequested ? null : ex;
             StoppedTcs.TrySetResult(true);
             return closeHandler(ex);
         }
@@ -70,10 +69,11 @@ namespace MessageStream.EventLoop
 
     }
 
-    public class EventLoopTask : EventLoopTask<object>
+    public class EventLoopTask<T> : EventLoopTask
     {
-        public EventLoopTask(Func<CancellationToken, ValueTask> eventHandler, Func<Exception, ValueTask> closeHandler, CancellationToken cancellationToken)
-            : base((o, ct) => eventHandler(ct), null, closeHandler, cancellationToken)
+        
+        public EventLoopTask(Func<T, CancellationToken, ValueTask> eventHandler, T state, Func<Exception, ValueTask> closeHandler, CancellationToken cancellationToken)
+            : base(token => eventHandler(state, token), closeHandler, cancellationToken)
         {
         }
 

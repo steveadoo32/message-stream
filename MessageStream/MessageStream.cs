@@ -75,7 +75,7 @@ namespace MessageStream
             this.writerPipeOptions = writerPipeOptions ?? new PipeOptions();
             this.writerCloseTimeout = writerCloseTimeout ?? TimeSpan.FromSeconds(5);
 
-            Lazy<IEventLoop> eventLoopLazy = new Lazy<IEventLoop>(() => new TaskEventLoop(), false);
+            Lazy<IEventLoop> eventLoopLazy = new Lazy<IEventLoop>(() => new WhileEventLoop(), false);
             this.readEventLoop = readEventLoop ?? eventLoopLazy.Value;
             this.writeEventLoop = writeEventLoop ?? eventLoopLazy.Value;
 
