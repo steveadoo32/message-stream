@@ -28,11 +28,11 @@ namespace MessageStream.Sockets.Server
 
         public delegate ValueTask HandleConnectionKeepAliveAsync(Connection connection);
 
-        private readonly IEventLoop readEventLoop = new QueueEventLoop(readers: 4);
-        private readonly IEventLoop writeEventLoop = new QueueEventLoop(readers: 4);
+        private readonly IEventLoop readEventLoop = new QueueEventLoop(readers: 5);
+        private readonly IEventLoop writeEventLoop = new QueueEventLoop(readers: 5);
 
-        private readonly IEventLoop channelReadEventLoop = new QueueEventLoop(readers: 4);
-        private readonly IEventLoop channelWriteEventLoop = new QueueEventLoop(readers: 4);
+        private readonly IEventLoop channelReadEventLoop = new QueueEventLoop(readers: 5);
+        private readonly IEventLoop channelWriteEventLoop = new QueueEventLoop(readers: 5);
 
         private readonly HandleConnectionAsync handleConnectionDelegate;
         private readonly HandleConnectionMessageAsync handleConnectionMessageDelegate;
