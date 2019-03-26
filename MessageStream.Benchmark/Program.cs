@@ -84,8 +84,6 @@ namespace MessageStream.Benchmark
 
             readStream.Dispose();
             writeStream.Dispose();
-
-            Console.ReadLine();
         }
 
         private static async Task<Stream> GetReadStreamAsync(int messageCount)
@@ -115,7 +113,7 @@ namespace MessageStream.Benchmark
             {
                 await messageStream.WriteAsync(new TestMessage2
                 {
-                    Value = (uint)random.Next(int.MaxValue)
+                    Value = 5 //(uint)random.Next(int.MaxValue)
                 }).ConfigureAwait(false);
             }
 
@@ -127,28 +125,6 @@ namespace MessageStream.Benchmark
             memoryStream.Position = 0;
 
             return memoryStream;
-        }
-
-        public static void Bullshit()
-        {
-            IMessageBodyDeserializer<int, StagedBodyMessageHeader, TestMessage> deser = new TestMessageDeserializer();
-
-            var readOnlyBuffer = new ReadOnlySpan<byte>();
-            var header = new StagedBodyMessageHeader();
-            var message = new TestMessage();
-
-            deser.DeserializeOnto(readOnlyBuffer, header, ref message);
-        }
-
-        public static void Bullshit2()
-        {
-            TestMessage2Deserializer deser = new TestMessage2Deserializer();
-
-            var readOnlyBuffer = new ReadOnlySpan<byte>();
-            var header = new StagedBodyMessageHeader();
-            var message = new TestMessage2();
-
-            deser.DeserializeOnto(readOnlyBuffer, header, ref message);
         }
 
     }
