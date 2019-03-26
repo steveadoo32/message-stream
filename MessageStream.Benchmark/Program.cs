@@ -113,7 +113,7 @@ namespace MessageStream.Benchmark
             {
                 await messageStream.WriteAsync(new TestMessage2
                 {
-                    Value = 5 //(uint)random.Next(int.MaxValue)
+                    Value = 56546723 //(uint)random.Next(int.MaxValue)
                 }).ConfigureAwait(false);
             }
 
