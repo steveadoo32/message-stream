@@ -7,7 +7,17 @@ namespace System
 {
     public static class SpanExtensions
     {
-        
+
+        private static readonly uint[] shiftBytes = new uint[4]
+        {
+            24, 16, 8, 0
+        };
+
+        private static readonly int[] andBytes = new int[4]
+        {
+            0xFF, 0xFF, 0xFF, 0xFF
+        };
+
         /// <summary>
         /// Reads an unsigned int from the buffer. You need to be sure that you have enough in the buffer, this won't check bounds.
         /// Increments index by 4
@@ -15,22 +25,17 @@ namespace System
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static unsafe uint ReadUInt(this in ReadOnlySpan<byte> buffer, ref int index)
         {
-            uint* shiftBytes = stackalloc uint[4];
-            shiftBytes[0] = 24;
-            shiftBytes[1] = 16;
-            shiftBytes[2] = 8;
-            shiftBytes[3] = 0;
+            fixed(byte* bufferPtr = buffer.Slice(index, 4))
+            fixed(uint* shiftBytesPtr = new Span<uint>(shiftBytes))
+            {
+                var vector = Avx.ConvertToVector128Int32(Avx.LoadVector128(bufferPtr));
+                var shiftVector = Avx.LoadVector128(shiftBytesPtr);
+                var result = Avx2.ShiftLeftLogicalVariable(vector, shiftVector).AsUInt32();
 
-            var arr = stackalloc byte[4];
-            var span = new Span<byte>(arr, 4);
-            buffer.Slice(index, 4).CopyTo(span);
-            var vector = Avx.ConvertToVector128Int32(Avx.LoadVector128(arr));
-            var shiftVector = Avx.LoadVector128(shiftBytes);
-            var result = Avx2.ShiftLeftLogicalVariable(vector, shiftVector).AsUInt32();
-
-            index += 4;
-
-            return (uint) result.GetElement(0) | result.GetElement(1) | result.GetElement(2) | result.GetElement(3); // ((uint)b1 << 24) | ((uint)b2 << 16) | ((uint)b3 << 8) | b4;
+                index += 4;
+                
+                return result.GetElement(0) | result.GetElement(1) | result.GetElement(2) | result.GetElement(3);
+            }
         }
 
         /// <summary>
@@ -40,22 +45,17 @@ namespace System
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static unsafe int ReadInt(this in ReadOnlySpan<byte> buffer, ref int index)
         {
-            uint* shiftBytes = stackalloc uint[4];
-            shiftBytes[0] = 24;
-            shiftBytes[1] = 16;
-            shiftBytes[2] = 8;
-            shiftBytes[3] = 0;
+            fixed (byte* bufferPtr = buffer.Slice(index, 4))
+            fixed (uint* shiftBytesPtr = new Span<uint>(shiftBytes))
+            {
+                var vector = Avx.ConvertToVector128Int32(Avx.LoadVector128(bufferPtr));
+                var shiftVector = Avx.LoadVector128(shiftBytesPtr);
+                var result = Avx2.ShiftLeftLogicalVariable(vector, shiftVector);
 
-            var arr = stackalloc byte[4];
-            var span = new Span<byte>(arr, 4);
-            buffer.Slice(index, 4).CopyTo(span);
-            var vector = Avx.ConvertToVector128Int32(Avx.LoadVector128(arr));
-            var shiftVector = Avx.LoadVector128(shiftBytes);
-            var result = Avx2.ShiftLeftLogicalVariable(vector, shiftVector);
+                index += 4;
 
-            index += 4;
-
-            return (int)result.GetElement(0) | result.GetElement(1) | result.GetElement(2) | result.GetElement(3);
+                return result.GetElement(0) | result.GetElement(1) | result.GetElement(2) | result.GetElement(3);
+            }
         }
 
         /// <summary>
@@ -100,67 +100,51 @@ namespace System
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static unsafe void WriteUInt(this in Span<byte> buffer, ref int index, uint value)
         {
-            uint* bytes = stackalloc uint[4];
-            bytes[0] = value;
-            bytes[1] = value;
-            bytes[2] = value;
-            bytes[3] = value;
-            uint* shiftBytes = stackalloc uint[4];
-            shiftBytes[0] = 24;
-            shiftBytes[1] = 16;
-            shiftBytes[2] = 8;
-            shiftBytes[3] = 0;
-            int* andBytes = stackalloc int[4];
-            andBytes[0] = 0xFF;
-            andBytes[1] = 0xFF;
-            andBytes[2] = 0xFF;
-            andBytes[3] = 0xFF;
+            fixed(byte* ptr = buffer.Slice(index, 4))
+            fixed (uint* shiftBytesPtr = new Span<uint>(shiftBytes))
+            fixed (int* andBytesPtr = new Span<int>(andBytes))
+            {
+                var vector = Avx.LoadVector128(ptr).AsUInt32()
+                    .WithElement(0, value)
+                    .WithElement(1, value)
+                    .WithElement(2, value)
+                    .WithElement(3, value);
+                var shiftVector = Avx.LoadVector128(shiftBytesPtr);
+                var result = Avx2.ShiftRightLogicalVariable(vector.AsInt32(), shiftVector);
+                var andResult = Avx.And(result, Avx.LoadVector128(andBytesPtr));
 
-            var vector = Avx.LoadVector128(bytes);
-            var int32Var = vector.AsInt32();
-            var shiftVector = Avx.LoadVector128(shiftBytes);
-            var result = Avx2.ShiftRightLogicalVariable(int32Var, shiftVector);
-            var andResult = Avx.And(result, Avx.LoadVector128(andBytes));
+                ptr[index + 0] = (byte)andResult.GetElement(0);
+                ptr[index + 1] = (byte)andResult.GetElement(1);
+                ptr[index + 2] = (byte)andResult.GetElement(2);
+                ptr[index + 3] = (byte)andResult.GetElement(3);
 
-            buffer[index + 0] = (byte) andResult.GetElement(0);
-            buffer[index + 1] = (byte)andResult.GetElement(1);
-            buffer[index + 2] = (byte)andResult.GetElement(2);
-            buffer[index + 3] = (byte)andResult.GetElement(3);
-
-            index += 4;
+                index += 4;
+            }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static unsafe void WriteInt(this in Span<byte> buffer, ref int index, int value)
         {
-            int* bytes = stackalloc int[4];
-            bytes[0] = value;
-            bytes[1] = value;
-            bytes[2] = value;
-            bytes[3] = value;
-            uint* shiftBytes = stackalloc uint[4];
-            shiftBytes[0] = 24;
-            shiftBytes[1] = 16;
-            shiftBytes[2] = 8;
-            shiftBytes[3] = 0;
-            int* andBytes = stackalloc int[4];
-            andBytes[0] = 0xFF;
-            andBytes[1] = 0xFF;
-            andBytes[2] = 0xFF;
-            andBytes[3] = 0xFF;
+            fixed (byte* ptr = buffer.Slice(index, 4))
+            fixed (uint* shiftBytesPtr = new Span<uint>(shiftBytes))
+            fixed (int* andBytesPtr = new Span<int>(andBytes))
+            {
+                var vector = Avx.LoadVector128(ptr).AsInt32()
+                    .WithElement(0, value)
+                    .WithElement(1, value)
+                    .WithElement(2, value)
+                    .WithElement(3, value);
+                var shiftVector = Avx.LoadVector128(shiftBytesPtr);
+                var result = Avx2.ShiftRightLogicalVariable(vector.AsInt32(), shiftVector);
+                var andResult = Avx.And(result, Avx.LoadVector128(andBytesPtr));
 
-            var vector = Avx.LoadVector128(bytes);
-            var int32Var = vector.AsInt32();
-            var shiftVector = Avx.LoadVector128(shiftBytes);
-            var result = Avx2.ShiftRightLogicalVariable(int32Var, shiftVector);
-            var andResult = Avx.And(result, Avx.LoadVector128(andBytes));
+                buffer[index + 0] = (byte)andResult.GetElement(0);
+                buffer[index + 1] = (byte)andResult.GetElement(1);
+                buffer[index + 2] = (byte)andResult.GetElement(2);
+                buffer[index + 3] = (byte)andResult.GetElement(3);
 
-            buffer[index + 0] = (byte)andResult.GetElement(0);
-            buffer[index + 1] = (byte)andResult.GetElement(1);
-            buffer[index + 2] = (byte)andResult.GetElement(2);
-            buffer[index + 3] = (byte)andResult.GetElement(3);
-
-            index += 4;
+                index += 4;
+            }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
