@@ -28,6 +28,7 @@ namespace MessageStream.Benchmark
                     new MessageStreamReader(readStream),
                     new StagedBodyMessageDeserializer(
                         messageProvider,
+                        new TestMessage2Deserializer(),
                         new TestMessageDeserializer()
                     ),
                     new MessageStreamWriter(writeStream),
@@ -94,6 +95,7 @@ namespace MessageStream.Benchmark
                            new MessageStreamReader(new MemoryStream()),
                            new StagedBodyMessageDeserializer(
                                new MessageProvider<int, IStagedBodyMessage>(),
+                               new TestMessage2Deserializer(),
                                new TestMessageDeserializer()
                            ),
                            new MessageStreamWriter(memoryStream),
@@ -111,20 +113,10 @@ namespace MessageStream.Benchmark
             var random = new Random();
             for (int i = 0; i < messageCount; i++)
             {
-                if (i % 2 == 0)
+                await messageStream.WriteAsync(new TestMessage2
                 {
-                    await messageStream.WriteAsync(new TestMessage
-                    {
-                        Value = (short)random.Next(short.MaxValue)
-                    }).ConfigureAwait(false);
-                }
-                else
-                {
-                    await messageStream.WriteAsync(new TestMessage2
-                    {
-                        Value = (uint) random.Next(int.MaxValue)
-                    }).ConfigureAwait(false);
-                }
+                    Value = (uint)random.Next(int.MaxValue)
+                }).ConfigureAwait(false);
             }
 
             stopwatch.Stop();
