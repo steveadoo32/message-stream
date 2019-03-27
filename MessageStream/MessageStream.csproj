@@ -2,6 +2,18 @@
 
   <PropertyGroup>
     <TargetFramework>netcoreapp2.1</TargetFramework>
+    <PackageId>message-stream</PackageId>
+    <Authors>Stephen Moyer</Authors>
+    <Company>MMSPartners</Company>
+    <Product>message-stream</Product>
+    <Description>message-stream wraps the new .NET Core Pipelines and Channels APIs into an easy to use framework for message serialization from generic data sources</Description>
+    <PackageProjectUrl>https://github.com/steveadoo32/message-stream</PackageProjectUrl>
+    <PackageLicenseUrl>https://github.com/steveadoo32/message-stream/blob/master/LICENSE.md</PackageLicenseUrl>
+    <RepositoryUrl>https://github.com/steveadoo32/message-stream</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
+    <Version>1.0.2</Version>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">

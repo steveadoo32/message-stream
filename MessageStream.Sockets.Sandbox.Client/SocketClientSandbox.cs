@@ -57,7 +57,7 @@ namespace MessageStream.Sockets.Sandbox
                     Id = 1,
                     Value = 5
                 }).ConfigureAwait(false);
-                //await Task.Delay(100).ConfigureAwait(false);
+                await Task.Delay(16).ConfigureAwait(false);
             }
         }
 

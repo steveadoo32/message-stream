@@ -42,8 +42,6 @@ namespace MessageStream
         private bool closing = false;
 
         private SemaphoreSlim outerCloseSemaphore;
-
-        public int ProviderId { get; }
         
         public int NumReaders { get; }
 
@@ -133,7 +131,7 @@ namespace MessageStream
             return InnerCloseAsync();
         }
 
-        private async Task InnerCloseAsync()
+        protected virtual async Task InnerCloseAsync()
         {
             // Shut down keep alive task.
             keepAliveCts.Cancel(false);
@@ -220,7 +218,7 @@ namespace MessageStream
                 }
                 catch (Exception ex)
                 {
-                    Logger.Error(ex, $"Error executing keep alive for message stream for provider {ProviderId}");
+                    Logger.Error(ex, $"Error executing keep alive for message stream.");
                 }
             }
         }
