@@ -31,9 +31,7 @@ namespace MessageStream
         private Task channelWriteTask;
 
         private ConcurrentQueue<MessageWriteRequestResult> requestQueue;
-
-        protected Channel<MessageReadResult<T>> ReadChannel => readChannel;
-
+        
         /// <summary>
         /// </summary>
         /// <param name="readerMessageBuffer">Can be UnboundedChannelOptions or BoundedChannelOptions.</param>
@@ -138,12 +136,13 @@ namespace MessageStream
         /// </summary>
         public async ValueTask EnqueueMessageOnReaderAsync(T message)
         {
-            await ReadChannel.Writer.WriteAsync(new MessageReadResult<T>
+            await readChannel.Writer.WriteAsync(new MessageReadResult<T>
             {
                 Error = false,
                 Exception = null,
                 IsCompleted = false,
-                Result = message
+                Result = message,
+                ReadResult = true
             }).ConfigureAwait(false);
         }
 

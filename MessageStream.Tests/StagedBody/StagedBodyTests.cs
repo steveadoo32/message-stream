@@ -124,7 +124,63 @@ namespace MessageStream.Tests.StagedBody
                 while (true)
                 {
                     var result = await messageStream.ReadAsync().ConfigureAwait(false);
-                    if (result.ReadResult != null)
+                    if (result.ReadResult)
+                    {
+                        Interlocked.Increment(ref actualMessageCount);
+                    }
+                    if (result.IsCompleted)
+                    {
+                        break;
+                    }
+                }
+            })).ConfigureAwait(false);
+
+
+            Assert.Equal(messageCount, actualMessageCount);
+
+            // Close
+            await messageStream.CloseAsync().ConfigureAwait(false);
+
+        }
+
+        [Fact(DisplayName = "Multithreaded Staged Deserializer Mock message Write/Read")]
+        public async Task TestMultiThreadedStagedMockStream()
+        {
+            var readStream = new MemoryStream();
+            var writeStream = new MemoryStream();
+
+            var messageStream = new ConcurrentMessageStream<IStagedBodyMessage>(
+                    new MessageStreamReader(readStream),
+                    new StagedBodyMessageDeserializer(
+                        new MessageProvider<int, IStagedBodyMessage>(),
+                        new TestMessageDeserializer()
+                    ),
+                    new MessageStreamWriter(writeStream),
+                    new StagedBodyMessageSerializer(
+                        new TestMessageSerializer()
+                    ),
+                    readerFlushTimeout: TimeSpan.FromSeconds(1)
+                );
+            
+            await messageStream.OpenAsync().ConfigureAwait(false);
+
+            int messageCount = 5;
+            int actualMessageCount = 0;
+            for (int i = 0; i < messageCount; i++)
+            {
+                await messageStream.EnqueueMessageOnReaderAsync(new TestMessage
+                {
+                    Header = new StagedBodyMessageHeader(),
+                    Value = (short) i
+                });
+            }
+
+            await Task.WhenAll(Enumerable.Range(0, 5).Select(async _ =>
+            {
+                while (true)
+                {
+                    var result = await messageStream.ReadAsync().ConfigureAwait(false);
+                    if (result.ReadResult)
                     {
                         Interlocked.Increment(ref actualMessageCount);
                     }
