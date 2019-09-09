@@ -136,7 +136,13 @@ namespace MessageStream
         /// </summary>
         public async ValueTask EnqueueMessageOnReaderAsync(T message)
         {
-            await readChannel.Writer.WriteAsync(new MessageReadResult<T>
+            var writer = readChannel?.Writer;
+            if (writer == null)
+            {
+                return;
+            }
+
+            await writer.WriteAsync(new MessageReadResult<T>
             {
                 Error = false,
                 Exception = null,
@@ -148,7 +154,14 @@ namespace MessageStream
 
         public async override ValueTask<MessageReadResult<T>> ReadAsync()
         {
-            var reader = readChannel.Reader;
+            var reader = readChannel?.Reader;
+            if (reader == null)
+            {
+                return new MessageReadResult<T>
+                {
+                    IsCompleted = true
+                };
+            }
 
             MessageReadResult<T> result = default;
             bool readable = false;
@@ -178,7 +191,18 @@ namespace MessageStream
         /// </summary>
         public async override ValueTask<MessageWriteResult> WriteAsync(T message)
         {
-            var writer = writeChannel.Writer;
+            var writer = writeChannel?.Writer;
+
+            if (writer == null)
+            {
+                return new MessageWriteResult
+                {
+                    IsCompleted = true,
+                    Error = false,
+                    Exception = null
+                };
+            }
+
             var writeRequest = new MessageWriteRequest(message, null, null, null);
 
             bool writeable = false;
@@ -203,7 +227,17 @@ namespace MessageStream
         /// </summary>
         public async ValueTask<MessageWriteResult> WriteAndWaitAsync(T message)
         {
-            var writer = writeChannel.Writer;
+            var writer = writeChannel?.Writer;
+            if (writer == null)
+            {
+                return new MessageWriteResult
+                {
+                    IsCompleted = true,
+                    Error = false,
+                    Exception = null
+                };
+            }
+
             var tcs = new TaskCompletionSource<MessageWriteResult>(TaskCreationOptions.RunContinuationsAsynchronously);
             var writeRequest = new MessageWriteRequest(message, tcs, null, null);
 
@@ -239,7 +273,17 @@ namespace MessageStream
             // to MessageWriteRequest.
             matchFunc = matchFunc ?? (reply => DefaultReplyMatch(reply, typeof(TReply)));
 
-            var writer = writeChannel.Writer;
+            var writer = writeChannel?.Writer;
+            if (writer == null)
+            {
+                return new MessageWriteRequestResult<TReply>
+                {
+                    IsCompleted = true,
+                    Error = false,
+                    Exception = null
+                };
+            }
+
             var resultTcs = new TaskCompletionSource<MessageReadResult<T>>(TaskCreationOptions.RunContinuationsAsynchronously);
             var writeRequest = new MessageWriteRequest(message, null, resultTcs, matchFunc);
 
@@ -381,15 +425,19 @@ namespace MessageStream
             {
                 request.resultTcs.TrySetCanceled();
             }
-
-            requests.Clear();
             
+            requests.Clear();            
             writer.Complete();
         }
 
         private async Task WriteLoopAsync()
         {
-            var reader = writeChannel.Reader;
+            var reader = writeChannel?.Reader;
+            // Means stream is closed.
+            if (reader == null)
+            {
+                return;
+            }
 
             try
             {
@@ -408,7 +456,6 @@ namespace MessageStream
                     }
 
                     var writeResult = await base.WriteAsync(writeRequest.message).ConfigureAwait(false);
-
                     if (writeRequest.writeTcs != null)
                     {
                         writeRequest.writeTcs.TrySetResult(writeResult);
@@ -425,16 +472,8 @@ namespace MessageStream
                 // This happens if the underlying stream is closed and we have a message in flight.
                 // We can just ignore it.
             }
-
-            while (reader.TryRead(out var writeRequest))
-            {
-                var writeResult = await base.WriteAsync(writeRequest.message).ConfigureAwait(false);
-                if (writeRequest.writeTcs != null)
-                {
-                    writeRequest.writeTcs.TrySetResult(writeResult);
-                }
-            }
         }
+        
 
         #endregion
 
