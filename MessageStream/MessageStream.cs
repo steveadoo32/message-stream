@@ -197,7 +197,7 @@ namespace MessageStream
             return deserializer.Deserialize(in buffer, out read, out message);
         }
 
-        public virtual async ValueTask<MessageWriteResult> WriteAsync(T message)
+        public virtual async ValueTask<MessageWriteResult> WriteAsync(T message, bool flush = true)
         {
             if (!Open)
             {
@@ -217,7 +217,10 @@ namespace MessageStream
             // Write the data into the Writer
             var result = await writePipe.Writer.WriteAsync(serializedMessage).ConfigureAwait(false);
 
-            await writePipe.Writer.FlushAsync().ConfigureAwait(false);
+            if (flush)
+            {
+                await writePipe.Writer.FlushAsync().ConfigureAwait(false);
+            }
 
             return new MessageWriteResult
             {
@@ -225,6 +228,11 @@ namespace MessageStream
                 Error = writeException != null,
                 Exception = writeException
             };
+        }
+
+        public ValueTask<FlushResult> FlushAsync()
+        {
+            return writePipe.Writer.FlushAsync();
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

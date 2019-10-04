@@ -12,7 +12,7 @@ namespace MessageStream.Benchmark
 {
     class ProgramConcurrent
     {
-        public static async Task Main0(string[] args)
+        public static async Task Main(string[] args)
         {
             const int messageCount = 100_000;
             const int iterations = 10;
@@ -24,7 +24,7 @@ namespace MessageStream.Benchmark
             var messageProvider = new MessageProvider<int, IStagedBodyMessage>();
 
             var readStream = await GetReadStreamAsync(messageCount).ConfigureAwait(false);
-            var writeStream = new MemoryStream();
+            var writeStream = new MemoryStream((int) readStream.Length);
 
             var messageStream = new ConcurrentMessageStream<IStagedBodyMessage>(
                     new MessageStreamReader(readStream),
@@ -58,7 +58,7 @@ namespace MessageStream.Benchmark
                     while (true)
                     {
                         var result = await messageStream.ReadAsync().ConfigureAwait(false);
-                        if (result.ReadResult != null)
+                        if (result.ReadResult)
                         {
                             Interlocked.Increment(ref messageCounter);
                         }
