@@ -12,11 +12,11 @@ namespace MessageStream.Benchmark
 {
     class ProgramConcurrent
     {
-        public static async Task Main(string[] args)
+        public static async Task Main0(string[] args)
         {
-            const int messageCount = 100_000;
+            const int messageCount = 1_000_000;
             const int iterations = 10;
-            const int parallellism = 10;
+            const int parallellism = 1;
 
             int messageCounter = 0;
             var stopwatch = new Stopwatch();
@@ -68,15 +68,15 @@ namespace MessageStream.Benchmark
                         }
                     }
                 })).ConfigureAwait(false);
-                
-                if (messageStream.Open)
-                {
-                    await messageStream.CloseAsync().ConfigureAwait(false);
-                }
 
                 stopwatch.Stop();
 
                 Console.WriteLine($"Done iteration: {messageCounter / stopwatch.Elapsed.TotalSeconds} messages/s. {messageCounter} total messages read.");
+
+                if (messageStream.Open)
+                {
+                    await messageStream.CloseAsync().ConfigureAwait(false);
+                }
             }
 
             readStream.Dispose();

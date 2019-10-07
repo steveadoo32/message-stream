@@ -139,7 +139,7 @@ namespace MessageStream
 
         public virtual async ValueTask<MessageReadResult<T>> ReadAsync()
         {
-            DateTime timeReceived = DateTime.UtcNow;
+            //DateTime timeReceived = DateTime.UtcNow;
 
             bool partialMessage = false;
             T message = default;
@@ -177,7 +177,7 @@ namespace MessageStream
                 readPipe.Reader.AdvanceTo(read);
             }
 
-            DateTime parsedTime = DateTime.UtcNow;
+            //DateTime parsedTime = DateTime.UtcNow;
 
             return new MessageReadResult<T>
             {
@@ -186,8 +186,8 @@ namespace MessageStream
                 Exception = readException,
                 Result = message,
                 ReadResult = !partialMessage,
-                ReceivedTimeUtc = timeReceived,
-                ParsedTimeUtc = parsedTime
+                ReceivedTimeUtc = new DateTime(0),//timeReceived,
+                ParsedTimeUtc = new DateTime(0)
             };
         }
         

@@ -5,6 +5,7 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.IO.Pipelines;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Channels;
@@ -150,12 +151,22 @@ namespace MessageStream
         {
             // Shut down keep alive task.
             keepAliveCts.Cancel(false);
-            await keepAliveTask.ConfigureAwait(false);
+            // Ignore keep alive error.
+            await keepAliveTask.ContinueWith(_ => true).ConfigureAwait(false);
             keepAliveTask = null;
             
             await base.CloseAsync().ConfigureAwait(false);
                         
-            await Task.WhenAll(readTasks).ConfigureAwait(false);
+            await Task.WhenAll(readTasks.Select(t =>
+            {
+                return t.ContinueWith(readTask =>
+                {
+                    if (readTask.IsFaulted)
+                    {
+                        Logger.Warn(readTask.Exception, "Error shutting down read task. Ignoring.");
+                    }
+                });
+            })).ConfigureAwait(false);
             
             closing = false;
         }

@@ -10,7 +10,7 @@ namespace MessageStream.Benchmark
 {
     class Program
     {
-        public static async Task Main0(string[] args)
+        public static async Task Main(string[] args)
         {
             const int messageCount = 10_000_000;
             const int iterations = 10;
