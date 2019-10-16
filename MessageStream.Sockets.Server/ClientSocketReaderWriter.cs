@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace MessageStream.Sockets.Server
 {
-    internal class ClientSocketReaderWriter : IReader, IWriter
+    public class ClientSocketReaderWriter : IReader, IWriter
     {
 
         private readonly Socket socket;

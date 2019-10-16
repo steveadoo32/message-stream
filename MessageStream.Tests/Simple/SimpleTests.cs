@@ -72,7 +72,7 @@ namespace MessageStream.Tests.Simple
 
             var messageStream = new MessageStream<object>(
                     new MessageStreamReader(readStream),
-                    new ProtoBuf.ProtobufMessageDeserializer(),
+                    new ProtoBuf.ProtoBufMessageDeserializer(),
                     new MessageStreamWriter(writeStream),
                     new ProtoBuf.ProtoBufMessageSerializer()
                 );

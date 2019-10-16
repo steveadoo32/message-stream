@@ -14,8 +14,6 @@ namespace MessageStream
     public class ConcurrentMessageStream<T> : MessageStream<T>
     {
 
-        private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
-
         public readonly TimeSpan DefaultReaderFlushTimeout = TimeSpan.FromSeconds(1);
 
         private static readonly ChannelOptions DefaultReaderChannelOptions = new UnboundedChannelOptions
