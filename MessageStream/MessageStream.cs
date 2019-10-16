@@ -139,7 +139,7 @@ namespace MessageStream
 
         public virtual async ValueTask<MessageReadResult<T>> ReadAsync()
         {
-            DateTime timeReceived = DateTime.UtcNow;
+            //DateTime timeReceived = DateTime.UtcNow;
 
             bool partialMessage = false;
             T message = default;
@@ -177,7 +177,7 @@ namespace MessageStream
                 readPipe.Reader.AdvanceTo(read);
             }
 
-            DateTime parsedTime = DateTime.UtcNow;
+            //DateTime parsedTime = DateTime.UtcNow;
 
             return new MessageReadResult<T>
             {
@@ -186,8 +186,8 @@ namespace MessageStream
                 Exception = readException,
                 Result = message,
                 ReadResult = !partialMessage,
-                ReceivedTimeUtc = timeReceived,
-                ParsedTimeUtc = parsedTime
+                ReceivedTimeUtc = new DateTime(0),//timeReceived,
+                ParsedTimeUtc = new DateTime(0)
             };
         }
         
@@ -197,7 +197,7 @@ namespace MessageStream
             return deserializer.Deserialize(in buffer, out read, out message);
         }
 
-        public virtual async ValueTask<MessageWriteResult> WriteAsync(T message)
+        public virtual async ValueTask<MessageWriteResult> WriteAsync(T message, bool flush = true)
         {
             if (!Open)
             {
@@ -217,7 +217,10 @@ namespace MessageStream
             // Write the data into the Writer
             var result = await writePipe.Writer.WriteAsync(serializedMessage).ConfigureAwait(false);
 
-            await writePipe.Writer.FlushAsync().ConfigureAwait(false);
+            if (flush)
+            {
+                await writePipe.Writer.FlushAsync().ConfigureAwait(false);
+            }
 
             return new MessageWriteResult
             {
@@ -225,6 +228,11 @@ namespace MessageStream
                 Error = writeException != null,
                 Exception = writeException
             };
+        }
+
+        public ValueTask<FlushResult> FlushAsync()
+        {
+            return writePipe.Writer.FlushAsync();
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

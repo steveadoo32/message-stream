@@ -1,13 +1,20 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netcoreapp2.1</TargetFramework>
+    <TargetFramework>netcoreapp3.0</TargetFramework>
     <LangVersion>7.2</LangVersion>
+    <PackageId>message-stream.Sockets.Server</PackageId>
+    <Company>MMSPartners</Company>
+    <Authors>MMSP</Authors>
+    <Product>message-stream</Product>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <Version>1.1.0</Version>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\MessageStream.Sockets\MessageStream.Sockets.csproj" />
-    <ProjectReference Include="..\MessageStream\MessageStream.csproj" />
+    <PackageReference Include="message-stream" Version="1.1.0" />
+    <PackageReference Include="message-stream.Sockets" Version="1.1.0" />
   </ItemGroup>
 
 </Project>

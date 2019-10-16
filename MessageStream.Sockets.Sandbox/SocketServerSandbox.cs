@@ -17,7 +17,7 @@ namespace MessageStream.Sockets.Sandbox
         public static readonly SimpleMessageDeserializer Deserializer = new SimpleMessageDeserializer();
         public static readonly SimpleMessageSerializer Serializer = new SimpleMessageSerializer();
 
-        private SocketServer<SimpleMessage> server;
+        private SocketServer<object, SimpleMessage> server;
 
         private Stopwatch stopwatch;
         private int messagesReceived = 0;
@@ -33,7 +33,7 @@ namespace MessageStream.Sockets.Sandbox
         {
             stopwatch = new Stopwatch();
 
-            server = new SocketServer<SimpleMessage>(
+            server = new SocketServer<object, SimpleMessage>(
                 Deserializer,
                 Serializer,
                 HandleConnection,
@@ -49,13 +49,13 @@ namespace MessageStream.Sockets.Sandbox
             await server.CloseAsync().ConfigureAwait(false);
         }
 
-        ValueTask HandleConnection(SocketServer<SimpleMessage>.Connection connection)
+        ValueTask<object> HandleConnection(SocketServer<object, SimpleMessage>.Connection connection)
         {
             Logger.Info($"Client connected to server: {connection.Id}");
-            return new ValueTask();
+            return new ValueTask<object>();
         }
 
-        async ValueTask<bool> HandleServerMessage(SocketServer<SimpleMessage>.Connection connection, SimpleMessage message)
+        async ValueTask<bool> HandleServerMessage(SocketServer<object, SimpleMessage>.Connection connection, SimpleMessage message)
         {
             // Logger.Info($"Server message received: {connection.Id}:{message}");
 
@@ -76,13 +76,13 @@ namespace MessageStream.Sockets.Sandbox
             return true;
         }
 
-        ValueTask HandleServerDisconnection(SocketServer<SimpleMessage>.Connection connection, Exception ex, bool expected)
+        ValueTask HandleServerDisconnection(SocketServer<object, SimpleMessage>.Connection connection, Exception ex, bool expected)
         {
             Logger.Info($"Client disconnected from server: {connection.Id}:{expected}. {ex}");
             return new ValueTask();
         }
 
-        ValueTask HandleServerKeepAlive(SocketServer<SimpleMessage>.Connection connection)
+        ValueTask HandleServerKeepAlive(SocketServer<object, SimpleMessage>.Connection connection)
         {
             return new ValueTask();
         }

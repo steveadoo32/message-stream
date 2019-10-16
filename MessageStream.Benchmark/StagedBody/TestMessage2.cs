@@ -29,15 +29,15 @@ namespace MessageStream.Benchmark.StagedBody
 
     }
 
-    public class TestMessage2Serializer : StagedBodyMessageSerializer.UnknownSizeMessageBodySerializer<TestMessage2>
+    public class TestMessage2Serializer : StagedBodyMessageSerializer.KnownSizeMessageBodySerializer<TestMessage2>
     {
 
-        protected override Span<byte> Serialize(TestMessage2 message)
+        protected override int GetMessageSize(TestMessage2 message) => 4;
+
+        protected override void Serialize(TestMessage2 message, in Span<byte> buffer)
         {
-            Span<byte> buffer = new Span<byte>(new byte[4]);
             int offset = 0;
             buffer.WriteUInt(ref offset, message.Value);
-            return buffer;
         }
 
     }

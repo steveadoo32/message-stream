@@ -7,19 +7,19 @@ using System.Text;
 
 namespace MessageStream.ProtoBuf
 {
-    public class ProtoBufMessageSerializer : IMessageSerializer<object>
+    public class ProtoBufMessageSerializer<T> : IMessageSerializer<T>
     {
         public ProtoBufMessageSerializer()
         {
         }
         
-        public bool TryCalculateMessageSize(object message, out int size)
+        public bool TryCalculateMessageSize(T message, out int size)
         {
             size = -1;
             return false;
         }
 
-        public Span<byte> Serialize(object message, in Span<byte> buffer = default, bool bufferProvided = false)
+        public Span<byte> Serialize(T message, in Span<byte> buffer = default, bool bufferProvided = false)
         {
             using (var memoryStream = new MemoryStream())
             {
@@ -39,7 +39,12 @@ namespace MessageStream.ProtoBuf
                 return combinedSpan;
             }
         }
-        
+
 
     }
+    public class ProtoBufMessageSerializer : ProtoBufMessageSerializer<object>
+    {
+
+    }
+
 }

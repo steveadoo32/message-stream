@@ -1,16 +1,20 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netcoreapp2.1</TargetFramework>
+    <TargetFramework>netcoreapp3.0</TargetFramework>
     <LangVersion>7.2</LangVersion>
+    <PackageId>message-stream.ProtoBuf</PackageId>
+    <Version>1.1.1</Version>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <Authors>MMSP</Authors>
+    <Company>MMSPartners</Company>
+    <Product>message-stream</Product>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="message-stream" Version="1.1.0" />
     <PackageReference Include="protobuf-net" Version="2.4.0" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\MessageStream\MessageStream.csproj" />
   </ItemGroup>
 
 </Project>

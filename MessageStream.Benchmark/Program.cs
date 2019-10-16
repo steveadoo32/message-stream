@@ -22,7 +22,7 @@ namespace MessageStream.Benchmark
             var messageProvider = new MessageProvider<int, IStagedBodyMessage>();
 
             var readStream = await GetReadStreamAsync(messageCount).ConfigureAwait(false);
-            var writeStream = new MemoryStream();
+            var writeStream = new MemoryStream((int) readStream.Length);
 
             var messageStream = new MessageStream<IStagedBodyMessage>(
                     new MessageStreamReader(readStream),
@@ -124,6 +124,11 @@ namespace MessageStream.Benchmark
                     {
                         Value = (uint) random.Next(int.MaxValue)
                     }).ConfigureAwait(false);
+                }
+
+                if (i % 1000 == 0)
+                {
+                    await messageStream.FlushAsync().ConfigureAwait(false);
                 }
             }
 

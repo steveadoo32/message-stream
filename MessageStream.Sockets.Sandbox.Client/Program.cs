@@ -20,13 +20,13 @@ namespace MessageStream.Sockets.Sandbox.Client
 
             NLog.LogManager.Configuration = config;
 
-            const int port = 4353;
+            const int port = 32931;
 
             var clients = new List<SocketClientSandbox>();
 
             Task.Run(async () =>
             {
-                for (int i = 0; i < 1000; i++)
+                for (int i = 0; i < 1; i++)
                 {
                     var clientSandbox = new SocketClientSandbox("127.0.0.1", port);
                     clients.Add(clientSandbox);

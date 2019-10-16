@@ -4,7 +4,7 @@ using System.IO;
 
 namespace MessageStream.ProtoBuf
 {
-    public class ProtobufMessageDeserializer : StagedDeserializer<object>
+    public class ProtoBufMessageDeserializer<T> : StagedDeserializer<T>
     {
         
         public override int HeaderLength => 4;
@@ -23,7 +23,7 @@ namespace MessageStream.ProtoBuf
         }
 
         [DeserializationStage(1)]
-        public virtual object ReadBody(in ReadOnlySpan<byte> buffer, ProtoBufMessageHeader header)
+        public virtual T ReadBody(in ReadOnlySpan<byte> buffer, ProtoBufMessageHeader header)
         {
             int offset = 0;
             
@@ -31,10 +31,16 @@ namespace MessageStream.ProtoBuf
 
             using (var stream = new MemoryStream(buffer.Slice(offset).ToArray()))
             {
-                return global::ProtoBuf.Serializer.Deserialize(type, stream);
+                return (T) global::ProtoBuf.Serializer.Deserialize(type, stream);
             }
         }
 
 
     }
+
+    public class ProtoBufMessageDeserializer : ProtoBufMessageDeserializer<object>
+    {
+
+    }
+
 }

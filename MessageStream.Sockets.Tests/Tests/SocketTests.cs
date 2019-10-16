@@ -13,37 +13,37 @@ namespace MessageStream.Sockets.Tests.Tests
 
         private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
-        public static readonly ProtobufMessageDeserializer Deserializer = new ProtobufMessageDeserializer();
+        public static readonly ProtoBufMessageDeserializer Deserializer = new ProtoBufMessageDeserializer();
         public static readonly ProtoBufMessageSerializer Serializer = new ProtoBufMessageSerializer();
 
         [Fact(DisplayName = "Socket Reads Data")]
         public async Task SocketReadsData()
         {
-            ValueTask HandleConnection(SocketServer<object>.Connection connection)
+            ValueTask<object> HandleConnection(SocketServer<object, object>.Connection connection)
             {
                 Logger.Info($"Client connected to server: {connection.Id}");
-                return new ValueTask();
+                return new ValueTask<object>(new object());
             }
 
-            ValueTask<bool> HandleServerMessage(SocketServer<object>.Connection connection, object message)
+            ValueTask<bool> HandleServerMessage(SocketServer<object, object>.Connection connection, object message)
             {
                 Logger.Info($"Server message received: {connection.Id}:{message}");
                 return new ValueTask<bool>();
             }
 
-            ValueTask HandleServerDisconnection(SocketServer<object>.Connection connection, Exception ex, bool expected)
+            ValueTask HandleServerDisconnection(SocketServer<object, object>.Connection connection, Exception ex, bool expected)
             {
                 Logger.Info($"Client disconnected from server: {connection.Id}:{expected}. {ex}");
                 return new ValueTask();
             }
 
-            ValueTask HandleServerKeepAlive(SocketServer<object>.Connection connection)
+            ValueTask HandleServerKeepAlive(SocketServer<object, object>.Connection connection)
             {
                 Logger.Info($"Server keep handled alive for: {connection.Id}");
                 return new ValueTask();
             }
 
-            var server = new SocketServer<object>(
+            var server = new SocketServer<object, object>(
                 Deserializer,
                 Serializer,
                 HandleConnection,

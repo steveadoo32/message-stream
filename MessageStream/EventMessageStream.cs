@@ -26,6 +26,21 @@ namespace MessageStream
         
         public delegate ValueTask<bool> HandleMessageAsync(T message);
 
+        private static ChannelOptions CreateDefaultReaderChannelOptions(int numReaders)
+        {
+            // if one reader, we can optimize a bit
+            if (numReaders == 1)
+            {
+                return new UnboundedChannelOptions
+                {
+                    SingleReader = true,
+                    SingleWriter = true
+                };
+            } 
+            // let concurrent message stream decide
+            return null;
+        }
+
         /// <summary>
         /// Called when disconnections happen on the reader. This will close the stream.
         /// </summary>
@@ -79,7 +94,7 @@ namespace MessageStream
             ChannelOptions readerChannelOptions = null, 
             ChannelOptions writerChannelOptions = null, 
             TimeSpan? readerFlushTimeout = null)
-            : base(reader, deserializer, writer, serializer, readerPipeOptions, writerPipeOptions, writerCloseTimeout, readerChannelOptions, writerChannelOptions, readerFlushTimeout)
+            : base(reader, deserializer, writer, serializer, readerPipeOptions, writerPipeOptions, writerCloseTimeout, readerChannelOptions ?? CreateDefaultReaderChannelOptions(numReaders), writerChannelOptions, readerFlushTimeout)
         {
             this.handleMessageDelegate = handleMessageDelegate;
             this.handleDisconnectionDelegate = handleDisconnectionDelegate;
@@ -89,7 +104,7 @@ namespace MessageStream
             HandleMessagesAsynchronously = handleMessagesAsynchronously;
             KeepAliveTimeSpan = keepAliveTimeSpan ?? TimeSpan.FromSeconds(30);
         }
-        
+
         /// <summary>
         /// Starts this message stream on your reader/writers.
         /// You have to open them yourself
