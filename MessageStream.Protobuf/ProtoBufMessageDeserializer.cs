@@ -1,11 +1,14 @@
 ﻿using MessageStream.Message;
 using System;
+using System.Collections.Concurrent;
 using System.IO;
 
 namespace MessageStream.ProtoBuf
 {
     public class ProtoBufMessageDeserializer<T> : StagedDeserializer<T>
     {
+
+        private ConcurrentDictionary<string, Type> TypeNameCache = new ConcurrentDictionary<string, Type>();
         
         public override int HeaderLength => 4;
 
@@ -27,7 +30,12 @@ namespace MessageStream.ProtoBuf
         {
             int offset = 0;
             
-            var type = Type.GetType(buffer.ReadString(ref offset));
+            var type = TypeNameCache.GetOrAdd(buffer.ReadString(ref offset), GetTypeByName);
+
+            if (type == null)
+            {
+                return default;
+            }
 
             using (var stream = new MemoryStream(buffer.Slice(offset).ToArray()))
             {
@@ -35,6 +43,10 @@ namespace MessageStream.ProtoBuf
             }
         }
 
+        private static Type GetTypeByName(string typeName)
+        {
+            return Type.GetType(typeName);
+        }
 
     }
 

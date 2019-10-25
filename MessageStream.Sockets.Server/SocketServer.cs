@@ -45,6 +45,8 @@ namespace MessageStream.Sockets.Server
 
         private ConcurrentDictionary<int, Connection> Connections { get; set; }
 
+        public int ConnectionCount => Connections.Count;
+
         public SocketServer(
             IMessageDeserializer<TMessage> deserializer,
             IMessageSerializer<TMessage> serializer,
@@ -131,12 +133,16 @@ namespace MessageStream.Sockets.Server
         {
             try
             {
+                Logger.Info($"Closing connection {{ connectionId={connection.Id}, expected={expected}, reason={ex?.Message ?? "none"} }}.");
+
                 await handleConnectionDisconnectionDelegate(connection, ex, expected).ConfigureAwait(false);
             }
             catch (Exception dcEx)
             {
                 Logger.Error(dcEx, $"Error disconnecting connection {{ connectionId={connection.Id} }}");
             }
+
+            Connections.TryRemove(connection.Id, out var con);
         }
 
         private ValueTask<bool> HandleMessagAsync(Connection connection, TMessage msg)
@@ -179,12 +185,22 @@ namespace MessageStream.Sockets.Server
                         // TODO handle this. Shouldn't ever happen, but we should just disconnect the client.
                         await connection.DisconnectAsync().ConfigureAwait(false);
                         Logger.Warn($"Could not add connection to connection list. Disconnected connection. {{ connectionId={connectionId} }}.");
-
+                        continue;
                     }
 
-                    await messageStream.OpenAsync().ConfigureAwait(false);
+                    try
+                    {
+                        await messageStream.OpenAsync().ConfigureAwait(false);
 
-                    Logger.Debug($"message-stream initialized {{ connectionId={connectionId} }}.");
+                        Logger.Debug($"message-stream initialized. {{ connectionId={connectionId} }}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Error(ex, $"Error initializing message-stream. {{ connectionId={connectionId} }}.");
+                        await connection.DisconnectAsync().ConfigureAwait(false);
+                        Connections.TryRemove(connectionId, out var con);
+                        continue;
+                    }
 
                     var _ = Task.Run(async () =>
                     {
@@ -199,6 +215,7 @@ namespace MessageStream.Sockets.Server
                         {
                             Logger.Error(ex, $"Error initializing connection. Disconnecting. {{ connectionId={connectionId} }}");
                             await connection.DisconnectAsync().ConfigureAwait(false);
+                            Connections.TryRemove(connectionId, out var con);
                         }
                         finally
                         {
