@@ -135,16 +135,18 @@ namespace MessageStream
             keepAliveTask = Task.Run(KeepAliveAsync, keepAliveCts.Token);
         }
         
-        public override Task CloseAsync()
+        public override async Task CloseAsync()
         {
             if (!Open)
             {
-                return Task.CompletedTask;
+                return;
             }
 
             closing = true;
 
-            return InnerCloseAsync();
+            await InnerCloseAsync().ConfigureAwait(false);
+
+            outerCloseSemaphore.Dispose();
         }
 
         protected virtual async Task InnerCloseAsync()
@@ -233,7 +235,7 @@ namespace MessageStream
             {
                 try
                 {
-                    await Task.Delay(KeepAliveTimeSpan, keepAliveCts.Token).ContinueWith(_ => _).ConfigureAwait(false);
+                    await Task.Delay(KeepAliveTimeSpan, keepAliveCts.Token).ConfigureAwait(false);
 
                     if (keepAliveCts.Token.IsCancellationRequested)
                     {

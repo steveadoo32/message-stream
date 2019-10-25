@@ -66,7 +66,7 @@ namespace MessageStream.Sockets.Server
         public Task ListenAsync(int port, int tcpMaxPendingConnections = 1000, int maxPendingConnections = 50)
         {
             // TODO do we want to be able to listen on multiple ports? we should support that.
-            Logger.Info($"Starting server...");
+            Logger.Info($"Starting socket server...");
 
             pendingConnectionLock = new SemaphoreSlim(maxPendingConnections);
 
@@ -89,7 +89,9 @@ namespace MessageStream.Sockets.Server
             acceptTask = Task.Run(AcceptLoopAsync, acceptCts.Token); // TODO can you run this on multiple threads?
 
             Logger.Debug($"Accept loop started.");
-            
+
+            Logger.Info($"Socket server started.");
+
             return Task.CompletedTask;
         }
 
