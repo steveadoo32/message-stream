@@ -14,7 +14,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="message-stream" Version="1.1.0" />
+    <ProjectReference Include="..\MessageStream\MessageStream.csproj" />
   </ItemGroup>
 
 </Project>

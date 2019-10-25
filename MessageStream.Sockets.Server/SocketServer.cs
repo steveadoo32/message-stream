@@ -41,6 +41,7 @@ namespace MessageStream.Sockets.Server
 
         private CancellationTokenSource acceptCts;
         private Task acceptTask;
+        private SemaphoreSlim pendingConnectionLock;
 
         private ConcurrentDictionary<int, Connection> Connections { get; set; }
 
@@ -62,10 +63,12 @@ namespace MessageStream.Sockets.Server
             this.handleConnectionKeepAliveDelegate = handleKeepAliveDelegate;
         }
 
-        public Task ListenAsync(int port, int maxPendingConnections = 1000)
+        public Task ListenAsync(int port, int tcpMaxPendingConnections = 1000, int maxPendingConnections = 50)
         {
             // TODO do we want to be able to listen on multiple ports? we should support that.
             Logger.Info($"Starting server...");
+
+            pendingConnectionLock = new SemaphoreSlim(maxPendingConnections);
 
             Connections = new ConcurrentDictionary<int, Connection>();
             
@@ -75,9 +78,9 @@ namespace MessageStream.Sockets.Server
             socketListener = new Socket(localEndPoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
 
             socketListener.Bind(localEndPoint);
-            socketListener.Listen(maxPendingConnections);
+            socketListener.Listen(tcpMaxPendingConnections);
 
-            Logger.Info($"Listening on {port} {{ maxPendingConnections={maxPendingConnections} }}.");
+            Logger.Info($"Listening on {port} {{ tcpMaxPendingConnections={tcpMaxPendingConnections}, maxPendingConnections={maxPendingConnections} }}.");
 
             acceptCts = new CancellationTokenSource();
 
@@ -102,6 +105,8 @@ namespace MessageStream.Sockets.Server
             }
 
             socketListener.Close();
+            Connections.Clear();
+            pendingConnectionLock.Dispose();
 
             Logger.Info("Shutdown server.");
         }
@@ -151,7 +156,7 @@ namespace MessageStream.Sockets.Server
                     int connectionId = Math.Abs(Interlocked.Increment(ref connectionIdCounter));
                     var connection = new Connection(connectionId, socket);
 
-                    Logger.Info($"Connection connected {{ connectionId={connectionId} }}.");
+                    Logger.Info($"Connection accepted {{ connectionId={connectionId} }}.");
 
                     // We have a socket, setup the message stream
                     var messageStream = new ClientMessageStream<TMessage>(
@@ -177,15 +182,32 @@ namespace MessageStream.Sockets.Server
 
                     await messageStream.OpenAsync().ConfigureAwait(false);
 
-                    Logger.Debug($"MessageStream initialized {{ connectionId={connectionId} }}.");
+                    Logger.Debug($"message-stream initialized {{ connectionId={connectionId} }}.");
 
-                    connection.State = await handleConnectionDelegate(connection).ConfigureAwait(false);
+                    var _ = Task.Run(async () =>
+                    {
+                        await pendingConnectionLock.WaitAsync().ConfigureAwait(false);
+                        try
+                        {
+                            connection.State = await handleConnectionDelegate(connection).ConfigureAwait(false);
 
-                    Logger.Debug($"Connection initialized {{ connectionId={connectionId} }}.");
+                            Logger.Debug($"Connection initialized {{ connectionId={connectionId} }}.");
+                        } 
+                        catch (Exception ex)
+                        {
+                            Logger.Error(ex, $"Error initializing connection. Disconnecting. {{ connectionId={connectionId} }}");
+                            await connection.DisconnectAsync().ConfigureAwait(false);
+                        }
+                        finally
+                        {
+                            pendingConnectionLock.Release();
+                        }
+                    });
+
                 }
                 catch (Exception ex)
                 {
-                    Logger.Error(ex, "Accept loop exception.");
+                    Logger.Error(ex, "Exception in accept loop.");
 
                     bool close = await HandleAcceptExceptionAsync(ex).ConfigureAwait(false);
                     if (close)
@@ -250,9 +272,9 @@ namespace MessageStream.Sockets.Server
             /// <summary>
             /// Writes a message and waits for a specific message to come back.
             /// </summary>
-            public ValueTask<MessageWriteRequestResult<TReply>> WriteRequestAsync<TReply>(TMessage message, Func<TMessage, bool> matchFunc = null, int timeoutMilliseconds = -1) where TReply : TMessage
+            public ValueTask<MessageWriteRequestResult<TReply>> WriteRequestAsync<TReply>(TMessage message, Func<TMessage, bool> matchFunc = null, TimeSpan timeout = default) where TReply : TMessage
             {
-                return MessageStream.WriteRequestAsync<TReply>(message, matchFunc, timeoutMilliseconds);
+                return MessageStream.WriteRequestAsync<TReply>(message, matchFunc, timeout);
             }
 
         }

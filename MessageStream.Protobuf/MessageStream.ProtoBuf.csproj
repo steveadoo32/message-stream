@@ -13,8 +13,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="message-stream" Version="1.1.0" />
     <PackageReference Include="protobuf-net" Version="2.4.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MessageStream\MessageStream.csproj" />
   </ItemGroup>
 
 </Project>

@@ -14,6 +14,8 @@ namespace MessageStream
     public class ConcurrentMessageStream<T> : MessageStream<T>
     {
 
+        public static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
+
         public readonly TimeSpan DefaultReaderFlushTimeout = TimeSpan.FromSeconds(1);
 
         private static readonly ChannelOptions DefaultReaderChannelOptions = new UnboundedChannelOptions
@@ -292,7 +294,7 @@ namespace MessageStream
         /// <summary>
         /// Writes a message and waits for a specific message to come back.
         /// </summary>
-        public async ValueTask<MessageWriteRequestResult<TReply>> WriteRequestAsync<TReply>(T message, Func<T, bool> matchFunc = null, int timeoutMilliseconds = -1, bool flush = true) where TReply : T
+        public async ValueTask<MessageWriteRequestResult<TReply>> WriteRequestAsync<TReply>(T message, Func<T, bool> matchFunc = null, TimeSpan timeout = default, bool flush = true) where TReply : T
         {
             // TODO it will complicate the code, but we can save allocations on this delegate if we 
             // push this default match behavior into the read loop. We can just attach the type of TReply
@@ -341,9 +343,9 @@ namespace MessageStream
                 };
             }
 
-            if (timeoutMilliseconds > -1)
+            if (timeout.TotalMilliseconds > 0)
             {
-                var cts = new CancellationTokenSource(timeoutMilliseconds);
+                var cts = new CancellationTokenSource(timeout);
                 cts.Token.Register(state =>
                 {
                     var tcs = (TaskCompletionSource<MessageReadResult<T>>)state;
@@ -353,7 +355,6 @@ namespace MessageStream
 
             MessageReadResult<T> result = await resultTcs.Task.ConfigureAwait(false);
 
-            // This is dangerous, user has to be careful they're reply check is the right type.
             MessageReadResult<TReply> castedResult = new MessageReadResult<TReply>
             {
                 Error = result.Error,
@@ -392,68 +393,75 @@ namespace MessageStream
             int requestQueueDequeueMax = 0;
 
             bool readOuter = true;
-            MessageReadResult<T> result = await base.ReadAsync().ConfigureAwait(false);
-            while (readOuter && await writer.WaitToWriteAsync().ConfigureAwait(false))
+            try
             {
-                while (true)
+                MessageReadResult<T> result = await base.ReadAsync().ConfigureAwait(false);
+                while (readOuter && await writer.WaitToWriteAsync().ConfigureAwait(false))
                 {
-                    // Try to write, if fails, we just wait to write this result again.
-                    if (!writer.TryWrite(result))
+                    while (true)
                     {
-                        break;
-                    }
-
-                    if (!requestQueue.IsEmpty)
-                    {
-                        // Only dequeue the ones in this batch. We can end up being stuck here if there are 
-                        // messages being written at a faster rate than we read
-                        requestQueueDequeueCount = 0;
-                        requestQueueDequeueMax = requestQueue.Count;
-
-                        while (requestQueue.TryDequeue(out var request))
+                        // Try to write, if fails, we just wait to write this result again.
+                        if (!writer.TryWrite(result))
                         {
-                            requests.AddLast(request);
+                            break;
+                        }
 
-                            if (requestQueueDequeueCount >= requestQueueDequeueMax)
+                        if (!requestQueue.IsEmpty)
+                        {
+                            // Only dequeue the ones in this batch. We can end up being stuck here if there are 
+                            // messages being written at a faster rate than we read
+                            requestQueueDequeueCount = 0;
+                            requestQueueDequeueMax = requestQueue.Count;
+
+                            while (requestQueue.TryDequeue(out var request))
                             {
-                                break;
+                                requests.AddLast(request);
+
+                                if (requestQueueDequeueCount >= requestQueueDequeueMax)
+                                {
+                                    break;
+                                }
                             }
                         }
-                    }
 
-                    if (result.ReadResult && requests.Count > 0)
-                    {
-                        // Loop through the linked list and complete any requests that we match against.
-                        var currentNode = requests.First;
-                        while (currentNode != null)
+                        if (result.ReadResult && requests.Count > 0)
                         {
-                            // If we match we need to set the result and remove the request
-                            if (currentNode.Value.resultMatchFunc(result.Result))
+                            // Loop through the linked list and complete any requests that we match against.
+                            var currentNode = requests.First;
+                            while (currentNode != null)
                             {
-                                currentNode.Value.resultTcs.TrySetResult(result);
+                                // If we match we need to set the result and remove the request
+                                if (currentNode.Value.resultMatchFunc(result.Result))
+                                {
+                                    currentNode.Value.resultTcs.TrySetResult(result);
 
-                                requests.Remove(currentNode);
+                                    requests.Remove(currentNode);
+                                }
+
+                                // If the timeout was hit on the tcs, then remove it so we don't keep processing it.
+                                if (currentNode.Value.resultTcs.Task.IsCanceled)
+                                {
+                                    requests.Remove(currentNode);
+                                }
+
+                                currentNode = currentNode.Next;
                             }
-
-                            // If the timeout was hit on the tcs, then remove it so we don't keep processing it.
-                            if (currentNode.Value.resultTcs.Task.IsCanceled)
-                            {
-                                requests.Remove(currentNode);
-                            }
-
-                            currentNode = currentNode.Next;
                         }
-                    }
 
-                    if (result.IsCompleted)
-                    {
-                        readOuter = false;
-                        break;
-                    }
+                        if (result.IsCompleted)
+                        {
+                            readOuter = false;
+                            break;
+                        }
 
-                    // Read the next result
-                    result = await base.ReadAsync().ConfigureAwait(false);
+                        // Read the next result
+                        result = await base.ReadAsync().ConfigureAwait(false);
+                    }
                 }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "Error in read loop.");
             }
 
             // Clear out the rest of the waiting requests.
