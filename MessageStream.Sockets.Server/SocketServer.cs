@@ -1,10 +1,12 @@
 ﻿using MessageStream.Message;
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Linq;
 
 namespace MessageStream.Sockets.Server
 {
@@ -43,9 +45,9 @@ namespace MessageStream.Sockets.Server
         private Task acceptTask;
         private SemaphoreSlim pendingConnectionLock;
 
-        private ConcurrentDictionary<int, Connection> Connections { get; set; }
+        private ConcurrentDictionary<int, Connection> connections;
 
-        public int ConnectionCount => Connections.Count;
+        public int ConnectionCount => connections.Count;
 
         public SocketServer(
             IMessageDeserializer<TMessage> deserializer,
@@ -72,7 +74,7 @@ namespace MessageStream.Sockets.Server
 
             pendingConnectionLock = new SemaphoreSlim(maxPendingConnections);
 
-            Connections = new ConcurrentDictionary<int, Connection>();
+            connections = new ConcurrentDictionary<int, Connection>();
             
             IPEndPoint localEndPoint = new IPEndPoint(IPAddress.Any, port);
 
@@ -109,19 +111,25 @@ namespace MessageStream.Sockets.Server
             }
 
             socketListener.Close();
-            Connections.Clear();
+            connections.Clear();
             pendingConnectionLock.Dispose();
 
             Logger.Info("Shutdown server.");
         }
 
+        public bool TryGetConnection(int connectionId, out Connection connection)
+        {
+            return connections.TryGetValue(connectionId, out connection);
+        }
+
         public Connection GetConnection(int connectionId)
         {
-            if (Connections.TryGetValue(connectionId, out var value))
-            {
-                return value;
-            }
-            return null;
+            return connections[connectionId];
+        }
+
+        public IEnumerable<Connection> GetConnections()
+        {
+            return connections.Values;
         }
 
         private ValueTask HandleKeepAliveAsync(Connection connection)
@@ -142,7 +150,7 @@ namespace MessageStream.Sockets.Server
                 Logger.Error(dcEx, $"Error disconnecting connection {{ connectionId={connection.Id} }}");
             }
 
-            Connections.TryRemove(connection.Id, out var con);
+            connections.TryRemove(connection.Id, out var con);
         }
 
         private ValueTask<bool> HandleMessagAsync(Connection connection, TMessage msg)
@@ -180,7 +188,7 @@ namespace MessageStream.Sockets.Server
 
                     connection.MessageStream = messageStream;
 
-                    if (!Connections.TryAdd(connectionId, connection))
+                    if (!connections.TryAdd(connectionId, connection))
                     {
                         // TODO handle this. Shouldn't ever happen, but we should just disconnect the client.
                         await connection.DisconnectAsync().ConfigureAwait(false);
@@ -198,7 +206,7 @@ namespace MessageStream.Sockets.Server
                     {
                         Logger.Error(ex, $"Error initializing message-stream. {{ connectionId={connectionId} }}.");
                         await connection.DisconnectAsync().ConfigureAwait(false);
-                        Connections.TryRemove(connectionId, out var con);
+                        connections.TryRemove(connectionId, out var con);
                         continue;
                     }
 
@@ -215,7 +223,7 @@ namespace MessageStream.Sockets.Server
                         {
                             Logger.Error(ex, $"Error initializing connection. Disconnecting. {{ connectionId={connectionId} }}");
                             await connection.DisconnectAsync().ConfigureAwait(false);
-                            Connections.TryRemove(connectionId, out var con);
+                            connections.TryRemove(connectionId, out var con);
                         }
                         finally
                         {
