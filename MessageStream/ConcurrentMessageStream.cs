@@ -203,7 +203,7 @@ namespace MessageStream
         /// </summary>
         public async override ValueTask<MessageWriteResult> WriteAsync(T message, bool flush = true)
         {
-            var writer = writeChannel.Writer;
+            var writer = writeChannel?.Writer;
 
             if (writer == null)
             {

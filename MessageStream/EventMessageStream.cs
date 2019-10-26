@@ -23,7 +23,7 @@ namespace MessageStream
     {
 
         private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
-        
+
         public delegate ValueTask<bool> HandleMessageAsync(T message);
 
         private static ChannelOptions CreateDefaultReaderChannelOptions(int numReaders)
@@ -36,7 +36,7 @@ namespace MessageStream
                     SingleReader = true,
                     SingleWriter = true
                 };
-            } 
+            }
             // let concurrent message stream decide
             return null;
         }
@@ -47,18 +47,19 @@ namespace MessageStream
         public delegate ValueTask HandleDisconnectionAsync(Exception ex, bool expected);
 
         public delegate ValueTask HandleKeepAliveAsync();
-        
+
         private readonly HandleMessageAsync handleMessageDelegate;
         private readonly HandleDisconnectionAsync handleDisconnectionDelegate;
         private readonly HandleKeepAliveAsync handleKeepAliveDelegate;
-        
+
         private List<Task> readTasks;
-        private CancellationTokenSource keepAliveCts;
+        private CancellationTokenSource closedCts;
         private Task keepAliveTask;
         private bool closing = false;
+        private TaskCompletionSource<bool> outerCloseTcs;
 
         private SemaphoreSlim outerCloseSemaphore;
-        
+
         public int NumReaders { get; }
 
         public bool HandleMessagesAsynchronously { get; }
@@ -88,18 +89,18 @@ namespace MessageStream
             int numReaders = 1,
             bool handleMessagesAsynchronously = false,
             TimeSpan? keepAliveTimeSpan = null,
-            PipeOptions readerPipeOptions = null, 
-            PipeOptions writerPipeOptions = null, 
-            TimeSpan? writerCloseTimeout = null, 
-            ChannelOptions readerChannelOptions = null, 
-            ChannelOptions writerChannelOptions = null, 
+            PipeOptions readerPipeOptions = null,
+            PipeOptions writerPipeOptions = null,
+            TimeSpan? writerCloseTimeout = null,
+            ChannelOptions readerChannelOptions = null,
+            ChannelOptions writerChannelOptions = null,
             TimeSpan? readerFlushTimeout = null)
             : base(reader, deserializer, writer, serializer, readerPipeOptions, writerPipeOptions, writerCloseTimeout, readerChannelOptions ?? CreateDefaultReaderChannelOptions(numReaders), writerChannelOptions, readerFlushTimeout)
         {
             this.handleMessageDelegate = handleMessageDelegate;
             this.handleDisconnectionDelegate = handleDisconnectionDelegate;
             this.handleKeepAliveDelegate = handleKeepAliveDelegate;
-            
+
             NumReaders = numReaders;
             HandleMessagesAsynchronously = handleMessagesAsynchronously;
             KeepAliveTimeSpan = keepAliveTimeSpan ?? TimeSpan.FromSeconds(30);
@@ -113,28 +114,29 @@ namespace MessageStream
         public override async Task OpenAsync()
         {
             closing = false;
-            
+            outerCloseTcs = new TaskCompletionSource<bool>();
+
             // Let the underlying message stream infrastructure startup.
             await base.OpenAsync().ConfigureAwait(false);
 
             outerCloseSemaphore = new SemaphoreSlim(1, 1);
+            closedCts = new CancellationTokenSource();
 
             // Start the read tasks
             readTasks = new List<Task>(NumReaders);
 
-            for(int i = 0; i < NumReaders; i++)
+            for (int i = 0; i < NumReaders; i++)
             {
-                readTasks.Add(Task.Factory.StartNew(obj => OuterReadLoopAsync((OuterReadState) obj), new OuterReadState
+                readTasks.Add(Task.Factory.StartNew(obj => OuterReadLoopAsync((OuterReadState)obj), new OuterReadState
                 {
                     stream = this
-                }).Unwrap());
+                }, closedCts.Token).Unwrap());
             }
 
             // Start the keep alive task
-            keepAliveCts = new CancellationTokenSource();
-            keepAliveTask = Task.Run(KeepAliveAsync, keepAliveCts.Token);
+            keepAliveTask = Task.Run(KeepAliveAsync);
         }
-        
+
         public override async Task CloseAsync()
         {
             if (!Open)
@@ -143,22 +145,28 @@ namespace MessageStream
             }
 
             closing = true;
-
             await InnerCloseAsync().ConfigureAwait(false);
-
-            outerCloseSemaphore.Dispose();
         }
 
         protected virtual async Task InnerCloseAsync()
         {
             // Shut down keep alive task.
-            keepAliveCts.Cancel(false);
+            closedCts.Cancel(false);
+
             // Ignore keep alive error.
-            await keepAliveTask.ContinueWith(_ => true).ConfigureAwait(false);
+            try
+            {
+                await keepAliveTask.ConfigureAwait(false);
+            }
+            catch
+            {
+                // can ignore. if disconnect gets called from keepalive this could happen.
+            }
+
             keepAliveTask = null;
-            
+
             await base.CloseAsync().ConfigureAwait(false);
-                        
+
             await Task.WhenAll(readTasks.Select(t =>
             {
                 return t.ContinueWith(readTask =>
@@ -169,31 +177,50 @@ namespace MessageStream
                     }
                 });
             })).ConfigureAwait(false);
-            
+
+            await outerCloseTcs.Task.ConfigureAwait(false);
             closing = false;
         }
 
         private async Task OuterCloseAsync(Exception exception)
         {
-            await outerCloseSemaphore.WaitAsync().ConfigureAwait(false);
-
+            bool wasClosing = closing;
             try
             {
+                await outerCloseSemaphore.WaitAsync().ConfigureAwait(false);
+
                 // One of the other read tasks already closed us, so return.
-                if (closing || !Open)
+                if (outerCloseTcs.Task.IsCompleted)
                 {
                     return;
                 }
 
-                bool wasClosing = closing;
+                // If we called CloseAsync, then we dont need to call it again.
+                if (!wasClosing)
+                {
+                    await TryCloseAsync().ConfigureAwait(false);
+                }
 
-                await CloseAsync().ConfigureAwait(false);
-                
                 await handleDisconnectionDelegate(exception, wasClosing);
+
+                outerCloseTcs.TrySetResult(wasClosing);
+                outerCloseSemaphore.Dispose();
             }
-            finally
+            catch
             {
-                outerCloseSemaphore.Release();
+                // the outer close semaphore could be disposed, so this handles that.
+            }
+        }
+
+        private async Task TryCloseAsync()
+        {
+            try
+            {
+                await base.CloseAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "Error closing message stream.");
             }
         }
 
@@ -222,7 +249,7 @@ namespace MessageStream
                 {
                     // We have to run this in an async task becuase CloseAsync blocks on the read tasks
                     // so we could end up in a deadlock.
-                    _ = Task.Factory.StartNew(async obj => await (obj as OuterReadState).stream.OuterCloseAsync((obj as OuterReadState).result.Exception), state);
+                    _ = Task.Factory.StartNew(async obj => await (obj as OuterReadState).stream.OuterCloseAsync((obj as OuterReadState).result.Exception), state, TaskCreationOptions.DenyChildAttach);
 
                     break;
                 }
@@ -231,26 +258,30 @@ namespace MessageStream
 
         private async Task KeepAliveAsync()
         {
-            while(!keepAliveCts.Token.IsCancellationRequested)
+            while (!closedCts.Token.IsCancellationRequested)
             {
                 try
                 {
-                    await Task.Delay(KeepAliveTimeSpan, keepAliveCts.Token).ConfigureAwait(false);
+                    await Task.Delay(KeepAliveTimeSpan, closedCts.Token).ConfigureAwait(false);
 
-                    if (keepAliveCts.Token.IsCancellationRequested)
+                    if (closedCts.Token.IsCancellationRequested)
                     {
                         break;
                     }
-                    
-                    await handleKeepAliveDelegate().ConfigureAwait(false);
+
+                    await Task.Run(() => handleKeepAliveDelegate(), closedCts.Token).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
+                    if (ex is TaskCanceledException)
+                    {
+                        continue;
+                    }
                     Logger.Error(ex, $"Error executing keep alive for message stream.");
                 }
             }
         }
-        
+
         private class OuterReadState
         {
 

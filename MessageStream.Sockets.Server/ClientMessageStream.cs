@@ -57,8 +57,6 @@ namespace MessageStream.Sockets.Server
 
         public override async Task CloseAsync()
         {
-            await socketReaderWriter.DisconnectAsync().ConfigureAwait(false);
-
             await base.CloseAsync().ConfigureAwait(false);
         }
 

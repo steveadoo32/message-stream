@@ -18,7 +18,12 @@ namespace MessageStream.Sockets.Server
         /// <summary>
         /// Called when disconnections happen on the reader. This will close the stream for you.
         /// </summary>
-        public delegate ValueTask<TConnectionState> HandleConnectionAsync(Connection connection);
+        public delegate TConnectionState ConnectionStateProvider(Connection connection);
+
+        /// <summary>
+        /// Called when disconnections happen on the reader. This will close the stream for you.
+        /// </summary>
+        public delegate ValueTask HandleConnectionAsync(Connection connection);
 
         public delegate ValueTask<bool> HandleConnectionMessageAsync(Connection connection, TMessage message);
 
@@ -29,13 +34,16 @@ namespace MessageStream.Sockets.Server
 
         public delegate ValueTask HandleConnectionKeepAliveAsync(Connection connection);
 
+        private readonly IMessageDeserializer<TMessage> deserializer;
+        private readonly IMessageSerializer<TMessage> serializer;
+
+        private readonly ConnectionStateProvider connectionStateProvider;
         private readonly HandleConnectionAsync handleConnectionDelegate;
         private readonly HandleConnectionMessageAsync handleConnectionMessageDelegate;
         private readonly HandleConnectionDisconnectionAsync handleConnectionDisconnectionDelegate;
         private readonly HandleConnectionKeepAliveAsync handleConnectionKeepAliveDelegate;
 
-        private readonly IMessageDeserializer<TMessage> deserializer;
-        private readonly IMessageSerializer<TMessage> serializer;
+        private readonly TimeSpan? keepAliveTimeSpan;
 
         private Socket socketListener;
 
@@ -52,19 +60,22 @@ namespace MessageStream.Sockets.Server
         public SocketServer(
             IMessageDeserializer<TMessage> deserializer,
             IMessageSerializer<TMessage> serializer,
+            ConnectionStateProvider connectionStateProvider,
             HandleConnectionAsync handleConnectionDelegate,
             HandleConnectionMessageAsync handleMessageDelegate,
             HandleConnectionDisconnectionAsync handleConnectionDisconnectionDelegate,
-            HandleConnectionKeepAliveAsync handleKeepAliveDelegate
+            HandleConnectionKeepAliveAsync handleKeepAliveDelegate,
+            TimeSpan? keepAliveTimeSpan = null
         )
         {
             this.deserializer = deserializer;
             this.serializer = serializer;
-
+            this.connectionStateProvider = connectionStateProvider;
             this.handleConnectionDelegate = handleConnectionDelegate;
             this.handleConnectionMessageDelegate = handleMessageDelegate;
             this.handleConnectionDisconnectionDelegate = handleConnectionDisconnectionDelegate;
             this.handleConnectionKeepAliveDelegate = handleKeepAliveDelegate;
+            this.keepAliveTimeSpan = keepAliveTimeSpan;
         }
 
         public Task ListenAsync(int port, int tcpMaxPendingConnections = 1000, int maxPendingConnections = 50)
@@ -183,9 +194,11 @@ namespace MessageStream.Sockets.Server
                         (ex, expected) => HandleConnectionDisconnectAsync(connection, ex, expected),
                         () => HandleKeepAliveAsync(connection),
                         1,
-                        false
+                        false,
+                        keepAliveTimeSpan
                     );
 
+                    connection.State = connectionStateProvider(connection);
                     connection.MessageStream = messageStream;
 
                     if (!connections.TryAdd(connectionId, connection))
@@ -215,7 +228,7 @@ namespace MessageStream.Sockets.Server
                         await pendingConnectionLock.WaitAsync().ConfigureAwait(false);
                         try
                         {
-                            connection.State = await handleConnectionDelegate(connection).ConfigureAwait(false);
+                            await handleConnectionDelegate(connection).ConfigureAwait(false);
 
                             Logger.Debug($"Connection initialized {{ connectionId={connectionId} }}.");
                         } 
