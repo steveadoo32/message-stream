@@ -22,7 +22,7 @@ namespace MessageStream
 
         public Exception Exception { get; internal set; }
 
-        public MessageReadResult<T> ReadResult { get; set; }
+        public MessageReadResult<T> Result { get; set; }
 
     }
 

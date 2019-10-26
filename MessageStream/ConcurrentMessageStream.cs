@@ -339,7 +339,7 @@ namespace MessageStream
                     IsCompleted = true,
                     Error = false,
                     Exception = null,
-                    ReadResult = default
+                    Result = default
                 };
             }
 
@@ -368,7 +368,7 @@ namespace MessageStream
                 IsCompleted = true,
                 Error = false,
                 Exception = null,
-                ReadResult = castedResult
+                Result = castedResult
             };
         }
 
