@@ -315,6 +315,24 @@ namespace MessageStream
             var resultTcs = new TaskCompletionSource<MessageReadResult<T>>(TaskCreationOptions.RunContinuationsAsynchronously);
             var writeRequest = new MessageWriteRequest(message, null, resultTcs, matchFunc, flush);
 
+            CancellationTokenSource cts = null;
+            if (timeout.TotalMilliseconds > 0)
+            {
+                cts = new CancellationTokenSource(timeout);
+                cts.Token.Register(state =>
+                {
+                    var tcs = (TaskCompletionSource<MessageReadResult<T>>)state;
+                    tcs.TrySetResult(new MessageReadResult<T>
+                    {
+                        Error = true,
+                        Exception = new TaskCanceledException("Request timed out"),
+                        IsCompleted = false,
+                        Result = default,
+                        ReadResult = false
+                    });
+                }, resultTcs);
+            }
+
             // Write the message and await the read task.
             bool writeable = false;
             if (writer.TryWrite(writeRequest))
@@ -343,18 +361,7 @@ namespace MessageStream
                 };
             }
 
-            if (timeout.TotalMilliseconds > 0)
-            {
-                var cts = new CancellationTokenSource(timeout);
-                cts.Token.Register(state =>
-                {
-                    var tcs = (TaskCompletionSource<MessageReadResult<T>>)state;
-                    tcs.TrySetCanceled(cts.Token);
-                }, resultTcs);
-            }
-
             MessageReadResult<T> result = await resultTcs.Task.ConfigureAwait(false);
-
             MessageReadResult<TReply> castedResult = new MessageReadResult<TReply>
             {
                 Error = result.Error,
@@ -365,7 +372,7 @@ namespace MessageStream
 
             return new MessageWriteRequestResult<TReply>
             {
-                IsCompleted = true,
+                IsCompleted = false,
                 Error = false,
                 Exception = null,
                 Result = castedResult
@@ -417,7 +424,7 @@ namespace MessageStream
                             {
                                 requests.AddLast(request);
 
-                                if (requestQueueDequeueCount >= requestQueueDequeueMax)
+                                if (++requestQueueDequeueCount >= requestQueueDequeueMax)
                                 {
                                     break;
                                 }

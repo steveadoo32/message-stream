@@ -36,6 +36,7 @@ namespace MessageStream.Sockets.Sandbox
             server = new SocketServer<object, SimpleMessage>(
                 Deserializer,
                 Serializer,
+                null,
                 HandleConnection,
                 HandleServerMessage,
                 HandleServerDisconnection,
@@ -49,10 +50,9 @@ namespace MessageStream.Sockets.Sandbox
             await server.CloseAsync().ConfigureAwait(false);
         }
 
-        ValueTask<object> HandleConnection(SocketServer<object, SimpleMessage>.Connection connection)
+        async ValueTask HandleConnection(SocketServer<object, SimpleMessage>.Connection connection)
         {
             Logger.Info($"Client connected to server: {connection.Id}");
-            return new ValueTask<object>();
         }
 
         async ValueTask<bool> HandleServerMessage(SocketServer<object, SimpleMessage>.Connection connection, SimpleMessage message)

@@ -19,10 +19,10 @@ namespace MessageStream.Sockets.Tests.Tests
         [Fact(DisplayName = "Socket Reads Data")]
         public async Task SocketReadsData()
         {
-            ValueTask<object> HandleConnection(SocketServer<object, object>.Connection connection)
+            ValueTask HandleConnection(SocketServer<object, object>.Connection connection)
             {
                 Logger.Info($"Client connected to server: {connection.Id}");
-                return new ValueTask<object>(new object());
+                return new ValueTask();
             }
 
             ValueTask<bool> HandleServerMessage(SocketServer<object, object>.Connection connection, object message)
@@ -46,6 +46,7 @@ namespace MessageStream.Sockets.Tests.Tests
             var server = new SocketServer<object, object>(
                 Deserializer,
                 Serializer,
+                null,
                 HandleConnection,
                 HandleServerMessage,
                 HandleServerDisconnection,
