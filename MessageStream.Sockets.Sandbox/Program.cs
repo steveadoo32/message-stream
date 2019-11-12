@@ -1,5 +1,9 @@
 ﻿using NLog;
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace MessageStream.Sockets.Sandbox
@@ -12,7 +16,9 @@ namespace MessageStream.Sockets.Sandbox
 
             var logfile = new NLog.Targets.FileTarget("logfile") { FileName = "file.txt" };
             var logconsole = new NLog.Targets.ConsoleTarget("logconsole");
+            var logdebug = new NLog.Targets.DebuggerTarget("logdebugger");
 
+            config.AddRule(LogLevel.Trace, LogLevel.Fatal, logdebug);
             config.AddRule(LogLevel.Trace, LogLevel.Fatal, logconsole);
             config.AddRule(LogLevel.Debug, LogLevel.Fatal, logfile);
 
@@ -27,7 +33,7 @@ namespace MessageStream.Sockets.Sandbox
                 await serverSandbox.StartAsync().ConfigureAwait(false);
             });
 
-            Console.WriteLine("Press any key to exit.");
+            Console.WriteLine("Server started. Press enter to quit.");
             Console.ReadLine();
 
             Task.Run(async () =>
@@ -36,5 +42,6 @@ namespace MessageStream.Sockets.Sandbox
             }).Wait();
 
         }
+
     }
 }

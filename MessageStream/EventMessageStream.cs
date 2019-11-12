@@ -13,7 +13,6 @@ using System.Threading.Tasks;
 
 namespace MessageStream
 {
-
     /// <summary>
     /// Spawns tasks that will read from the readers and send events to you.
     /// Useful for a socket connection or something.
@@ -24,7 +23,15 @@ namespace MessageStream
 
         private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
+
         public delegate ValueTask<bool> HandleMessageAsync(T message);
+
+        /// <summary>
+        /// Called when disconnections happen on the reader. This will close the stream.
+        /// </summary>
+        public delegate ValueTask HandleDisconnectionAsync(Exception ex, bool expected);
+
+        public delegate ValueTask HandleKeepAliveAsync();
 
         private static ChannelOptions CreateDefaultReaderChannelOptions(int numReaders)
         {
@@ -40,13 +47,6 @@ namespace MessageStream
             // let concurrent message stream decide
             return null;
         }
-
-        /// <summary>
-        /// Called when disconnections happen on the reader. This will close the stream.
-        /// </summary>
-        public delegate ValueTask HandleDisconnectionAsync(Exception ex, bool expected);
-
-        public delegate ValueTask HandleKeepAliveAsync();
 
         private readonly HandleMessageAsync handleMessageDelegate;
         private readonly HandleDisconnectionAsync handleDisconnectionDelegate;
@@ -139,7 +139,7 @@ namespace MessageStream
 
         public override async Task CloseAsync()
         {
-            if (!Open)
+            if (!Open || closing)
             {
                 return;
             }

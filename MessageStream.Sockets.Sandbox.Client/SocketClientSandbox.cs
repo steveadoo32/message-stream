@@ -12,14 +12,16 @@ namespace MessageStream.Sockets.Sandbox
 
         private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
-        public static readonly SimpleMessageDeserializer Deserializer = new SimpleMessageDeserializer();
+        public static readonly SimpleMessageDeserializer Deserializer = new SimpleMessageDeserializer(false);
         public static readonly SimpleMessageSerializer Serializer = new SimpleMessageSerializer();
 
-        private EventSocketMessageStream<SimpleMessage> clientStream;
+        private RecoverableEventMessageStream<SimpleMessage> clientStream;
 
         public string Ip { get; }
 
         public int Port { get; }
+
+        public RecoverableEventMessageStream<SimpleMessage> ClientStream => clientStream;
 
         public SocketClientSandbox(string ip, int port)
         {
@@ -35,15 +37,27 @@ namespace MessageStream.Sockets.Sandbox
                 Port = Port
             };
 
-            clientStream = new EventSocketMessageStream<SimpleMessage>(
-                config,
-                Deserializer,
-                Serializer,
-                HandleClientMessage,
-                HandleClientDisconnection,
-                HandleClientKeepAlive,
-                1,
-                true);
+            clientStream = new RecoverableEventMessageStream<SimpleMessage>(
+                TimeSpan.FromSeconds(10),
+                TimeSpan.FromSeconds(2),
+                3,
+                disconnectionEvent => new EventSocketMessageStream<SimpleMessage>(
+                    config,
+                    Deserializer,
+                    Serializer,
+                    HandleClientMessage,
+                    disconnectionEvent,
+                    HandleClientKeepAlive,
+                    1,
+                    true
+                ),
+                async stream =>
+                {
+                    await Task.Delay(10).ConfigureAwait(false);
+                },
+                stream => new ValueTask(),
+                HandleClientDisconnection
+            );
 
             await clientStream.OpenAsync().ConfigureAwait(false);
         }
@@ -52,7 +66,7 @@ namespace MessageStream.Sockets.Sandbox
         {
             for (int i = 0; i < 1000000; i++)
             {
-                await clientStream.WriteAsync(new SimpleMessage
+                await clientStream.ActiveStream.WriteAsync(new SimpleMessage
                 {
                     Id = 1,
                     Value = 5

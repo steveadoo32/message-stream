@@ -19,6 +19,8 @@ namespace MessageStream
     /// <typeparam name="T"></typeparam>
     public class MessageStream<T>
     {
+
+        private static NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
         
         private readonly IReader reader;
         private readonly IMessageDeserializer<T> deserializer;
@@ -43,6 +45,10 @@ namespace MessageStream
         private Exception writeException;
         
         public bool Open { get; private set; }
+
+        public bool ReadCompleted { get; private set; }
+
+        public bool WriteCompleted { get; private set; }
 
         protected IMessageDeserializer<T> Deserializer => deserializer;
 
@@ -79,6 +85,9 @@ namespace MessageStream
             {
                 throw new Exception("MessageStream is already open");
             }
+
+            ReadCompleted = false;
+            WriteCompleted = false;
 
             readPipe = new Pipe(
                 readerPipeOptions
@@ -131,7 +140,18 @@ namespace MessageStream
 
             readPipe.Reader.Complete();
             writePipe.Reader.Complete();
+
+            try
+            {
+                await CleanupAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // todo log this?
+            }
         }
+
+        protected virtual Task CleanupAsync() => Task.CompletedTask;
 
         #endregion
 
@@ -139,7 +159,7 @@ namespace MessageStream
 
         public virtual async ValueTask<MessageReadResult<T>> ReadAsync()
         {
-            //DateTime timeReceived = DateTime.UtcNow;
+            DateTime timeReceived = DateTime.UtcNow;
 
             bool partialMessage = false;
             T message = default;
@@ -176,9 +196,12 @@ namespace MessageStream
             {
                 readPipe.Reader.AdvanceTo(read);
             }
-
-            //DateTime parsedTime = DateTime.UtcNow;
-
+            if (!ReadCompleted && completed)
+            {
+                ReadCompleted = completed;
+            }
+            
+            DateTime parsedTime = DateTime.UtcNow;
             return new MessageReadResult<T>
             {
                 IsCompleted = completed,
@@ -186,7 +209,7 @@ namespace MessageStream
                 Exception = readException,
                 Result = message,
                 ReadResult = !partialMessage,
-                ReceivedTimeUtc = new DateTime(0),//timeReceived,
+                ReceivedTimeUtc = timeReceived,
                 ParsedTimeUtc = new DateTime(0)
             };
         }
@@ -220,6 +243,11 @@ namespace MessageStream
             if (flush)
             {
                 await writePipe.Writer.FlushAsync().ConfigureAwait(false);
+            }
+            
+            if (!WriteCompleted && result.IsCompleted)
+            {
+                WriteCompleted = result.IsCompleted;
             }
 
             return new MessageWriteResult
@@ -289,6 +317,7 @@ namespace MessageStream
                     // If a reader returns len 0 then we should close the reader.
                     if (len == 0)
                     {
+                        Logger.Warn("Closing message stream because the reader returned 0 len.");
                         break;
                     }
                     
@@ -304,6 +333,7 @@ namespace MessageStream
                 cleanStop = cancellationToken.IsCancellationRequested;
                 if (!cleanStop)
                 {
+                    Logger.Error(ex, "Error in message stream read loop.");
                     readException = ex;
                 }
             }
@@ -348,6 +378,7 @@ namespace MessageStream
                 
                 if (!cleanStop)
                 {
+                    Logger.Error(ex, "Error in message stream write loop.");
                     writeException = ex;
                     writeCancellationTokenSource.Cancel();
                 }

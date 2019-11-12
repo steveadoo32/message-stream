@@ -65,10 +65,9 @@ namespace MessageStream.Sockets
 
             await base.OpenAsync().ConfigureAwait(false);
         }
-
-        public override async Task CloseAsync()
+        
+        protected override async Task CleanupAsync()
         {
-            await base.CloseAsync().ConfigureAwait(false);
             await socketReaderWriter.DisconnectAsync().ConfigureAwait(false);
         }
 

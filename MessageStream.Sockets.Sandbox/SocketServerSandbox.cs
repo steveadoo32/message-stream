@@ -24,6 +24,8 @@ namespace MessageStream.Sockets.Sandbox
 
         public int Port { get; }
 
+        public bool DebugReceived { get; set; } = false;
+
         public SocketServerSandbox(int port)
         {
             Port = port;
@@ -36,18 +38,23 @@ namespace MessageStream.Sockets.Sandbox
             server = new SocketServer<object, SimpleMessage>(
                 Deserializer,
                 Serializer,
-                null,
+                CreateConnectionState,
                 HandleConnection,
                 HandleServerMessage,
                 HandleServerDisconnection,
                 HandleServerKeepAlive);
 
             await server.ListenAsync(Port).ConfigureAwait(false);
-        }   
-        
+        }
+
         public async Task StopAsync()
         {
             await server.CloseAsync().ConfigureAwait(false);
+        }
+
+        private object CreateConnectionState(SocketServer<object, SimpleMessage>.Connection connection)
+        {
+            return new object();
         }
 
         async ValueTask HandleConnection(SocketServer<object, SimpleMessage>.Connection connection)
@@ -55,23 +62,51 @@ namespace MessageStream.Sockets.Sandbox
             Logger.Info($"Client connected to server: {connection.Id}");
         }
 
+        private Random random = new Random();
         async ValueTask<bool> HandleServerMessage(SocketServer<object, SimpleMessage>.Connection connection, SimpleMessage message)
         {
-            // Logger.Info($"Server message received: {connection.Id}:{message}");
-
             int messageId = Interlocked.Increment(ref messagesReceived);
 
             if (messageId == 1)
             {
                 stopwatch.Start();
             }
-
-            if (messageId % 1000000 == 0)
+            if (messageId % 100 == 0)
             {
                 Logger.Info($"Messages received: {messagesReceived}. Messages/s: {messagesReceived / stopwatch.Elapsed.TotalSeconds}");
             }
 
-            Deserializer.messageProvider.Return(0, message);
+            // if messages are being handled synchronously in the event message stream this can deadlock!
+            if (message.Disconnect)
+            {
+                await connection.DisconnectAsync().ConfigureAwait(false);
+            }
+
+            if (message.Value == 123123)
+            {
+                Environment.Exit(0);
+            }
+
+            if (DebugReceived)
+            {
+                Logger.Info($"Received message id {message.Id}");
+            }
+
+            if (!message.DontReply)
+            {
+                await connection.WriteAsync(new SimpleMessage
+                {
+                    Id = message.Id,
+                    Value = messageId
+                }).ConfigureAwait(false);
+
+                if (DebugReceived)
+                {
+                    Logger.Info($"Replied for message id {message.Id}");
+                }
+            }
+
+            Deserializer.MessageProvider.Return(0, message);
 
             return true;
         }

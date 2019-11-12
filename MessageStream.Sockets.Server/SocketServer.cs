@@ -194,7 +194,7 @@ namespace MessageStream.Sockets.Server
                         (ex, expected) => HandleConnectionDisconnectAsync(connection, ex, expected),
                         () => HandleKeepAliveAsync(connection),
                         1,
-                        false,
+                        true,
                         keepAliveTimeSpan
                     );
 

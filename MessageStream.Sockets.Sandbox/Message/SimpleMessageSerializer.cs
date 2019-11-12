@@ -9,15 +9,17 @@ namespace MessageStream.Sockets.Sandbox
         {
             int index = 0;
 
-            buffer.WriteShort(ref index, message.Id);
-            buffer.WriteShort(ref index, message.Value);
+            buffer.WriteInt(ref index, message.Id);
+            buffer.WriteInt(ref index, message.Value);
+            buffer.WriteByte(ref index, message.DontReply ? (byte) 1 : (byte) 0);
+            buffer.WriteByte(ref index, message.Disconnect ? (byte) 1 : (byte) 0);
 
             return buffer;
         }
 
         public bool TryCalculateMessageSize(SimpleMessage message, out int size)
         {
-            size = 4;
+            size = 10;
             return true;
         }
     }

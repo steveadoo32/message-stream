@@ -55,9 +55,9 @@ namespace MessageStream.Sockets.Server
         {
         }
 
-        public override async Task CloseAsync()
+        protected override async Task CleanupAsync()
         {
-            await base.CloseAsync().ConfigureAwait(false);
+            await socketReaderWriter.DisconnectAsync().ConfigureAwait(false);
         }
 
     }
