@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netcoreapp2.2</TargetFramework>
+    <TargetFramework>netcoreapp2.1</TargetFramework>
     <PackageId>message-stream</PackageId>
     <Authors>Stephen Moyer</Authors>
     <Company>MMSPartners</Company>
@@ -13,10 +13,8 @@
     <RepositoryType>git</RepositoryType>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
-    <Version>1.2.0</Version>
-    <PackageReleaseNotes>Updated Write api's to allow over control of flushing.
-Added flushasync method.
-Changed inner workings of how we use channels to get more performance.</PackageReleaseNotes>
+    <Version>1.2.1</Version>
+    <PackageReleaseNotes></PackageReleaseNotes>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
