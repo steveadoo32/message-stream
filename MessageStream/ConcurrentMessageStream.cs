@@ -30,6 +30,7 @@ namespace MessageStream
         };
 
         private readonly TimeSpan? readerFlushTimeout;
+        private readonly RequestResponseKeyResolver<T> keyResolver;
         private readonly ChannelOptions readerChannelOptions;
         private Channel<MessageReadResult<T>> readChannel;
         private Task channelReadTask;
@@ -54,6 +55,7 @@ namespace MessageStream
             IMessageDeserializer<T> deserializer,
             IWriter writer,
             IMessageSerializer<T> serializer,
+            RequestResponseKeyResolver<T> keyResolver = null,
             PipeOptions readerPipeOptions = null,
             PipeOptions writerPipeOptions = null,
             TimeSpan? writerCloseTimeout = null,
@@ -62,6 +64,7 @@ namespace MessageStream
             TimeSpan? readerFlushTimeout = null)
             : base(reader, deserializer, writer, serializer, readerPipeOptions, writerPipeOptions, writerCloseTimeout)
         {
+            this.keyResolver = keyResolver;
             this.readerChannelOptions = readerChannelOptions ?? DefaultReaderChannelOptions;
             this.writerChannelOptions = writerChannelOptions ?? DefaultWriterChannelOptions;
             this.readerFlushTimeout = readerFlushTimeout;
@@ -218,7 +221,7 @@ namespace MessageStream
                 };
             }
 
-            var writeRequest = new MessageWriteRequest(message, null, null, null, flush);
+            var writeRequest = new MessageWriteRequest(message, null, null, flush, null);
 
             // Write the request
             bool writeable = false;
@@ -262,7 +265,7 @@ namespace MessageStream
             }
 
             var tcs = new TaskCompletionSource<MessageWriteResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var writeRequest = new MessageWriteRequest(message, tcs, null, null, flush);
+            var writeRequest = new MessageWriteRequest(message, tcs, null, flush, null);
 
             // Write the request
             bool writeable = false;
@@ -294,16 +297,39 @@ namespace MessageStream
             return await tcs.Task.ConfigureAwait(false);
         }
 
+
+        /// <summary>
+        /// Writes a message and waits for a specific message to come back. You need to register key resolvers in the constructor for this way
+        /// </summary>
+        public async Task<MessageWriteRequestResult<TReply>> WriteRequestAsync<TReply>(T request, TimeSpan timeout = default, bool flush = true) where TReply : T
+        {
+            if (keyResolver == null)
+            {
+                throw new Exception("KeyResolver must be set if using this method.");
+            }
+
+            string key = keyResolver.GetKey(request);
+            if (key == null)
+            {
+                throw new ArgumentException($"Cannot find key for request {request}.");
+            }
+
+            return await WriteRequestInternalAsync<TReply>(request, timeout, flush, key).ConfigureAwait(false);
+        }
+
         /// <summary>
         /// Writes a message and waits for a specific message to come back.
         /// </summary>
-        public async ValueTask<MessageWriteRequestResult<TReply>> WriteRequestAsync<TReply>(T message, Func<T, bool> matchFunc = null, TimeSpan timeout = default, bool flush = true) where TReply : T
+        public async Task<MessageWriteRequestResult<TReply>> WriteRequestAsync<TRequest, TReply>(TRequest request, TimeSpan timeout = default, bool flush = true) where TRequest: T, IRequest where TReply : T, IResponse
         {
-            // TODO it will complicate the code, but we can save allocations on this delegate if we 
-            // push this default match behavior into the read loop. We can just attach the type of TReply
-            // to MessageWriteRequest.
-            matchFunc = matchFunc ?? (reply => DefaultReplyMatch(reply, typeof(TReply)));
+            return await WriteRequestInternalAsync<TReply>(request, timeout, flush, request.GetKey()).ConfigureAwait(false);
+        }
 
+        /// <summary>
+        /// Writes a message and waits for a specific message to come back.
+        /// </summary>
+        private async Task<MessageWriteRequestResult<TReply>> WriteRequestInternalAsync<TReply>(T request, TimeSpan timeout, bool flush, string requestKey) where TReply : T
+        {
             var writer = writeChannel?.Writer;
             if (writer == null)
             {
@@ -315,8 +341,8 @@ namespace MessageStream
                 };
             }
 
-            var resultTcs = new TaskCompletionSource<MessageReadResult<T>>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var writeRequest = new MessageWriteRequest(message, null, resultTcs, matchFunc, flush);
+            TaskCompletionSource<MessageReadResult<T>> resultTcs = new TaskCompletionSource<MessageReadResult<T>>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var writeRequest = new MessageWriteRequest(request, null, resultTcs, flush, requestKey);
 
             CancellationTokenSource cts = null;
             if (timeout.TotalMilliseconds > 0)
@@ -402,7 +428,7 @@ namespace MessageStream
 
             // Use a linked list because 99% of the time we should be matching the requests in order,
             // so we'll end up removing the first element of the list.
-            var requests = new LinkedList<MessageWriteRequestResult>();
+            Dictionary<string, TaskCompletionSource<MessageReadResult<T>>> requests = new Dictionary<string, TaskCompletionSource<MessageReadResult<T>>>();
             bool readOuter = true;
             try
             {
@@ -420,12 +446,26 @@ namespace MessageStream
                         // Only dequeue the ones in this batch. We can end up being stuck here if there are 
                         // messages being written at a faster rate than we read
                         int requestQueueDequeueCount = 0;
-                        int requestQueueDequeueMax = requestQueue.Count;
+                        int requestQueueDequeueMax = requestQueue.Count * 2;
                         while (requestQueue.TryDequeue(out var request))
                         {
                             if (!request.resultTcs.Task.IsCompleted)
                             {
-                                requests.AddLast(request);
+                                if (request.requestKey == null)
+                                {
+                                    Debugger.Break();
+                                }
+                                if (!requests.TryAdd(request.requestKey, request.resultTcs))
+                                {
+                                    request.resultTcs.TrySetResult(new MessageReadResult<T>
+                                    {
+                                        Error = true,
+                                        Exception = new DuplicateRequestException($"Duplicate request id {request.requestKey} detected."),
+                                        IsCompleted = false,
+                                        ReadResult = false,
+                                        Result = default
+                                    });
+                                }
                             }
 
                             if (++requestQueueDequeueCount >= requestQueueDequeueMax)
@@ -436,31 +476,11 @@ namespace MessageStream
 
                         if (result.ReadResult)
                         {
-                            // Loop through the linked list and complete any requests that we match against.
-                            // NOTE: requests that time out will have requests that sit in this list until the next message is read and they can be removed.
-                            var currentNode = requests.First;
-                            while (currentNode != null)
+                            var responseKey = result.Result is IResponse response ? response.GetKey() : keyResolver?.GetKey(result.Result);
+                            if (responseKey != null && requests.TryGetValue(responseKey, out var resultTcs))
                             {
-                                // If we match we need to set the result and remove the request
-                                if (currentNode.Value.resultMatchFunc(result.Result))
-                                {
-                                    currentNode.Value.resultTcs.TrySetResult(result);
-
-                                    var next = currentNode.Next;
-                                    requests.Remove(currentNode);
-                                    currentNode = null; // we matched so don't process anymore.
-                                }
-                                // If the tcs is complete remove it so we dont keep processing.
-                                else if (currentNode.Value.resultTcs.Task.IsCompleted)
-                                {
-                                    var next = currentNode.Next;
-                                    requests.Remove(currentNode);
-                                    currentNode = next;
-                                }
-                                else
-                                {
-                                    currentNode = currentNode.Next;
-                                }
+                                resultTcs.TrySetResult(result);
+                                requests.Remove(responseKey);
                             }
                         }
 
@@ -483,12 +503,19 @@ namespace MessageStream
             // Clear out the rest of the waiting requests.
             while (requestQueue.TryDequeue(out var request))
             {
-                requests.AddLast(request);
+                request.resultTcs.TrySetResult(new MessageReadResult<T>
+                {
+                    Error = true,
+                    Exception = new TaskCanceledException("Request timed out"),
+                    IsCompleted = false,
+                    Result = default,
+                    ReadResult = false
+                });
             }
 
-            foreach (var request in requests)
+            foreach (var resultTcs in requests.Values)
             {
-                request.resultTcs.TrySetResult(new MessageReadResult<T>
+                resultTcs.TrySetResult(new MessageReadResult<T>
                 {
                     Error = true,
                     Exception = new TaskCanceledException("Request timed out"),
@@ -521,7 +548,8 @@ namespace MessageStream
                         MessageWriteRequestResult request = default;
                         if (writeRequest.resultTcs != null)
                         {
-                            request = new MessageWriteRequestResult(writeRequest.resultTcs, writeRequest.resultMatchFunc, writeRequest.message);
+                            // these will only be messages of type IRequest here.
+                            request = new MessageWriteRequestResult(writeRequest.resultTcs, writeRequest.requestKey);
                             requestQueue.Enqueue(request);
                         }
 
@@ -572,20 +600,20 @@ namespace MessageStream
             public T message;
             public TaskCompletionSource<MessageWriteResult> writeTcs;
             public TaskCompletionSource<MessageReadResult<T>> resultTcs;
-            public Func<T, bool> resultMatchFunc;
             public bool flush;
+            public string requestKey;
 
             public MessageWriteRequest(T message,
                 TaskCompletionSource<MessageWriteResult> tcs,
                 TaskCompletionSource<MessageReadResult<T>> resultTcs,
-                Func<T, bool> resultMatchFunc,
-                bool flush) : this()
+                bool flush,
+                string requestKey) : this()
             {
                 this.message = message;
                 this.writeTcs = tcs;
                 this.resultTcs = resultTcs;
-                this.resultMatchFunc = resultMatchFunc;
                 this.flush = flush;
+                this.requestKey = requestKey;
             }
 
         }
@@ -594,17 +622,15 @@ namespace MessageStream
         {
 
             public TaskCompletionSource<MessageReadResult<T>> resultTcs;
-            public Func<T, bool> resultMatchFunc;
-            public T message;
+            public string requestKey;
 
             public MessageWriteRequestResult(
                 TaskCompletionSource<MessageReadResult<T>> resultTcs,
-                Func<T, bool> resultMatchFunc,
-                T message) : this()
+                string requestKey
+            ) : this()
             {
                 this.resultTcs = resultTcs;
-                this.resultMatchFunc = resultMatchFunc;
-                this.message = message;
+                this.requestKey = requestKey;
             }
 
         }

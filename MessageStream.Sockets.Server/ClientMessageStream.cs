@@ -14,10 +14,11 @@ namespace MessageStream.Sockets.Server
 
         private readonly ClientSocketReaderWriter socketReaderWriter;
 
-        private ClientMessageStream(
+        public ClientMessageStream(
             ClientSocketReaderWriter socketReaderWriter,
             IMessageDeserializer<T> deserializer,
             IMessageSerializer<T> serializer,
+            RequestResponseKeyResolver<T> rpcKeyResolver,
             HandleMessageAsync handleMessageDelegate,
             HandleDisconnectionAsync handleDisconnectionDelegate,
             HandleKeepAliveAsync handleKeepAliveDelegate,
@@ -30,7 +31,7 @@ namespace MessageStream.Sockets.Server
             ChannelOptions readerChannelOptions = null,
             ChannelOptions writerChannelOptions = null,
             TimeSpan? readerFlushTimeout = null
-        ) : base(socketReaderWriter, deserializer, socketReaderWriter, serializer, handleMessageDelegate, handleDisconnectionDelegate, handleKeepAliveDelegate, numReaders, handleMessagesAsynchronously, keepAliveTimeSpan, readerPipeOptions, writerPipeOptions, writerCloseTimeout, readerChannelOptions, writerChannelOptions, readerFlushTimeout)
+        ) : base(socketReaderWriter, deserializer, socketReaderWriter, serializer, rpcKeyResolver, handleMessageDelegate, handleDisconnectionDelegate, handleKeepAliveDelegate, numReaders, handleMessagesAsynchronously, keepAliveTimeSpan, readerPipeOptions, writerPipeOptions, writerCloseTimeout, readerChannelOptions, writerChannelOptions, readerFlushTimeout)
         {
             this.socketReaderWriter = socketReaderWriter;
         }
@@ -39,6 +40,7 @@ namespace MessageStream.Sockets.Server
             Socket socket,
             IMessageDeserializer<T> deserializer,
             IMessageSerializer<T> serializer,
+            RequestResponseKeyResolver<T> rpcKeyResolver,
             HandleMessageAsync handleMessageDelegate,
             HandleDisconnectionAsync handleDisconnectionDelegate,
             HandleKeepAliveAsync handleKeepAliveDelegate,
@@ -51,7 +53,7 @@ namespace MessageStream.Sockets.Server
             ChannelOptions readerChannelOptions = null,
             ChannelOptions writerChannelOptions = null,
             TimeSpan? readerFlushTimeout = null
-        ) : this(new ClientSocketReaderWriter(socket), deserializer, serializer, handleMessageDelegate, handleDisconnectionDelegate, handleKeepAliveDelegate, numReaders, handleMessagesAsynchronously, keepAliveTimeSpan, readerPipeOptions, writerPipeOptions, writerCloseTimeout, readerChannelOptions, writerChannelOptions, readerFlushTimeout)
+        ) : this(new ClientSocketReaderWriter(socket), deserializer, serializer, rpcKeyResolver, handleMessageDelegate, handleDisconnectionDelegate, handleKeepAliveDelegate, numReaders, handleMessagesAsynchronously, keepAliveTimeSpan, readerPipeOptions, writerPipeOptions, writerCloseTimeout, readerChannelOptions, writerChannelOptions, readerFlushTimeout)
         {
         }
 

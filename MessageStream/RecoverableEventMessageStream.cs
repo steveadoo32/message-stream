@@ -59,7 +59,7 @@ namespace MessageStream
             await openDelegate(ActiveStream).ConfigureAwait(false);
         }
 
-        public async ValueTask<MessageWriteRequestResult<TReply>> WriteRetryableRequestAsync<TReply>(T message, Func<T, MessageWriteRequestResult<TReply>, Exception, bool> shouldRetry, Func<T, bool> matchFunc = null, TimeSpan timeout = default, bool flush = true) where TReply : T
+        public async ValueTask<MessageWriteRequestResult<TReply>> WriteRetryableRequestAsync<TRequest, TReply>(TRequest request, Func<T, MessageWriteRequestResult<TReply>, Exception, bool> shouldRetry, TimeSpan timeout = default, bool flush = true) where TRequest : T, IRequest where TReply : T, IResponse
         {
             var stream = ActiveStream;
             var recoveredSignal = streamRecoveredSignal;
@@ -67,14 +67,14 @@ namespace MessageStream
             Exception outerEx = null;
             try
             {
-                result = await stream.WriteRequestAsync<TReply>(message, matchFunc, timeout, flush).ConfigureAwait(false);
+                result = await stream.WriteRequestAsync<TRequest, TReply>(request, timeout, flush).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 outerEx = ex;
             }
 
-            if (shouldRetry(message, result, outerEx))
+            if (shouldRetry(request, result, outerEx))
             {
                 // if the old stream is done we need to wait for the new one.
                 if (stream.ReadCompleted || stream.WriteCompleted)
@@ -92,7 +92,7 @@ namespace MessageStream
                 }
 
                 // we are good to retry. we'll let this one throw if needed
-                result = await ActiveStream.WriteRequestAsync<TReply>(message, matchFunc, timeout, flush).ConfigureAwait(false);
+                result = await ActiveStream.WriteRequestAsync<TRequest, TReply>(request, timeout, flush).ConfigureAwait(false);
             }
 
             return result;

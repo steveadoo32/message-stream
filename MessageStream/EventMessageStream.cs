@@ -83,6 +83,7 @@ namespace MessageStream
             IMessageDeserializer<T> deserializer,
             IWriter writer,
             IMessageSerializer<T> serializer,
+            RequestResponseKeyResolver<T> rpcKeyResolver, 
             HandleMessageAsync handleMessageDelegate,
             HandleDisconnectionAsync handleDisconnectionDelegate,
             HandleKeepAliveAsync handleKeepAliveDelegate,
@@ -95,7 +96,7 @@ namespace MessageStream
             ChannelOptions readerChannelOptions = null,
             ChannelOptions writerChannelOptions = null,
             TimeSpan? readerFlushTimeout = null)
-            : base(reader, deserializer, writer, serializer, readerPipeOptions, writerPipeOptions, writerCloseTimeout, readerChannelOptions ?? CreateDefaultReaderChannelOptions(numReaders), writerChannelOptions, readerFlushTimeout)
+            : base(reader, deserializer, writer, serializer, rpcKeyResolver, readerPipeOptions, writerPipeOptions, writerCloseTimeout, readerChannelOptions ?? CreateDefaultReaderChannelOptions(numReaders), writerChannelOptions, readerFlushTimeout)
         {
             this.handleMessageDelegate = handleMessageDelegate;
             this.handleDisconnectionDelegate = handleDisconnectionDelegate;
@@ -104,6 +105,39 @@ namespace MessageStream
             NumReaders = numReaders;
             HandleMessagesAsynchronously = handleMessagesAsynchronously;
             KeepAliveTimeSpan = keepAliveTimeSpan ?? TimeSpan.FromSeconds(30);
+        }
+
+        /// <summary>
+        /// </summary>
+        /// <param name="handleMessageDelegate">Handles messages</param>
+        /// <param name="handleDisconnectionDelegate">Called when there is a problem with the reader. The stream will be closed before this is called.</param>
+        /// <param name="handleKeepAliveDelegate">Useful if you need to keep writing data every xxx seconds</param>
+        /// <param name="numReaders">How many tasks to spawn to read from the channel</param>
+        /// <param name="handleMessagesAsynchronously">
+        /// Set this to true if you are using a bounded reader channel and you call WriteRequestAsync inside of your handleMessageDelegate.
+        /// If you leave it false, you can run into a situation where your reader channel is being throttled, so the responses for WriteRequest will never come back,
+        /// which will cause even more blocking on the whole read pipeline.
+        /// </param>
+        /// <param name="keepAliveTimeSpan">How long until we wait until we invoke the keep alive delegate. Default is 30 seconds.</param>
+        public EventMessageStream(
+            IReader reader,
+            IMessageDeserializer<T> deserializer,
+            IWriter writer,
+            IMessageSerializer<T> serializer,
+            HandleMessageAsync handleMessageDelegate,
+            HandleDisconnectionAsync handleDisconnectionDelegate,
+            HandleKeepAliveAsync handleKeepAliveDelegate,
+            int numReaders = 1,
+            bool handleMessagesAsynchronously = false,
+            TimeSpan? keepAliveTimeSpan = null,
+            PipeOptions readerPipeOptions = null,
+            PipeOptions writerPipeOptions = null,
+            TimeSpan? writerCloseTimeout = null,
+            ChannelOptions readerChannelOptions = null,
+            ChannelOptions writerChannelOptions = null,
+            TimeSpan? readerFlushTimeout = null)
+            : this(reader, deserializer, writer, serializer, null, handleMessageDelegate, handleDisconnectionDelegate, handleKeepAliveDelegate, numReaders, handleMessagesAsynchronously, keepAliveTimeSpan, readerPipeOptions, writerPipeOptions, writerCloseTimeout, readerChannelOptions, writerChannelOptions, readerFlushTimeout)
+        {
         }
 
         /// <summary>
