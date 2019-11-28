@@ -45,6 +45,7 @@ namespace MessageStream.Sockets.Sandbox
                     config,
                     Deserializer,
                     Serializer,
+                    null,
                     HandleClientMessage,
                     disconnectionEvent,
                     HandleClientKeepAlive,

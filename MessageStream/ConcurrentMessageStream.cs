@@ -484,6 +484,7 @@ namespace MessageStream
                                     requestResult.resultTcs.TrySetResult(result);
                                 }
                             }
+
                         }
                         
                         // Don't process this request logic again if we have to wait to write.
@@ -514,6 +515,19 @@ namespace MessageStream
             catch (Exception ex)
             {
                 Logger.Error(ex, "Error in read loop.");
+            }
+
+            // Cancel pending requests here as well, it doesnt matter if we've already set the results.
+            foreach (var requestResult in requests.Values)
+            {
+                requestResult.resultTcs.TrySetResult(new MessageReadResult<T>
+                {
+                    Error = true,
+                    Exception = new TaskCanceledException("Request timed out"),
+                    IsCompleted = false,
+                    Result = default,
+                    ReadResult = false
+                });
             }
 
             writer.Complete();

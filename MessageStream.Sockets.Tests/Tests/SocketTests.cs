@@ -84,6 +84,7 @@ namespace MessageStream.Sockets.Tests.Tests
                 config,
                 Deserializer,
                 Serializer,
+                null,
                 HandleClientMessage,
                 HandleClientDisconnection,
                 HandleClientKeepAlive);

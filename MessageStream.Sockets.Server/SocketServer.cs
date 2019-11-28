@@ -36,7 +36,7 @@ namespace MessageStream.Sockets.Server
 
         private readonly IMessageDeserializer<TMessage> deserializer;
         private readonly IMessageSerializer<TMessage> serializer;
-
+        private readonly RequestResponseKeyResolver<TMessage> rpcKeyResolver;
         private readonly ConnectionStateProvider connectionStateProvider;
         private readonly HandleConnectionAsync handleConnectionDelegate;
         private readonly HandleConnectionMessageAsync handleConnectionMessageDelegate;
@@ -70,6 +70,29 @@ namespace MessageStream.Sockets.Server
         {
             this.deserializer = deserializer;
             this.serializer = serializer;
+            this.connectionStateProvider = connectionStateProvider;
+            this.handleConnectionDelegate = handleConnectionDelegate;
+            this.handleConnectionMessageDelegate = handleMessageDelegate;
+            this.handleConnectionDisconnectionDelegate = handleConnectionDisconnectionDelegate;
+            this.handleConnectionKeepAliveDelegate = handleKeepAliveDelegate;
+            this.keepAliveTimeSpan = keepAliveTimeSpan;
+        }
+
+        public SocketServer(
+            IMessageDeserializer<TMessage> deserializer,
+            IMessageSerializer<TMessage> serializer,
+            RequestResponseKeyResolver<TMessage> rpcKeyResolver, 
+            ConnectionStateProvider connectionStateProvider,
+            HandleConnectionAsync handleConnectionDelegate,
+            HandleConnectionMessageAsync handleMessageDelegate,
+            HandleConnectionDisconnectionAsync handleConnectionDisconnectionDelegate,
+            HandleConnectionKeepAliveAsync handleKeepAliveDelegate,
+            TimeSpan? keepAliveTimeSpan = null
+        )
+        {
+            this.deserializer = deserializer;
+            this.serializer = serializer;
+            this.rpcKeyResolver = rpcKeyResolver;
             this.connectionStateProvider = connectionStateProvider;
             this.handleConnectionDelegate = handleConnectionDelegate;
             this.handleConnectionMessageDelegate = handleMessageDelegate;
@@ -155,6 +178,8 @@ namespace MessageStream.Sockets.Server
                 Logger.Info($"Closing connection {{ connectionId={connection.Id}, expected={expected}, reason={ex?.Message ?? "none"} }}.");
 
                 await handleConnectionDisconnectionDelegate(connection, ex, expected).ConfigureAwait(false);
+
+                Logger.Info($"Closed connection {{ connectionId={connection.Id}, expected={expected}, reason={ex?.Message ?? "none"} }}.");
             }
             catch (Exception dcEx)
             {
@@ -190,6 +215,7 @@ namespace MessageStream.Sockets.Server
                         socket,
                         deserializer,
                         serializer,
+                        rpcKeyResolver,
                         msg => HandleMessagAsync(connection, msg),
                         (ex, expected) => HandleConnectionDisconnectAsync(connection, ex, expected),
                         () => HandleKeepAliveAsync(connection),
@@ -204,7 +230,7 @@ namespace MessageStream.Sockets.Server
                     if (!connections.TryAdd(connectionId, connection))
                     {
                         // TODO handle this. Shouldn't ever happen, but we should just disconnect the client.
-                        await connection.DisconnectAsync().ConfigureAwait(false);
+                        var dcTask = connection.DisconnectAsync();
                         Logger.Warn($"Could not add connection to connection list. Disconnected connection. {{ connectionId={connectionId} }}.");
                         continue;
                     }
@@ -218,7 +244,7 @@ namespace MessageStream.Sockets.Server
                     catch (Exception ex)
                     {
                         Logger.Error(ex, $"Error initializing message-stream. {{ connectionId={connectionId} }}.");
-                        await connection.DisconnectAsync().ConfigureAwait(false);
+                        var dcTask = connection.DisconnectAsync();
                         connections.TryRemove(connectionId, out var con);
                         continue;
                     }
@@ -235,7 +261,7 @@ namespace MessageStream.Sockets.Server
                         catch (Exception ex)
                         {
                             Logger.Error(ex, $"Error initializing connection. Disconnecting. {{ connectionId={connectionId} }}");
-                            await connection.DisconnectAsync().ConfigureAwait(false);
+                            var dcTask = connection.DisconnectAsync();
                             connections.TryRemove(connectionId, out var con);
                         }
                         finally

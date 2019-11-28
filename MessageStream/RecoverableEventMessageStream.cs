@@ -61,50 +61,7 @@ namespace MessageStream
             await ActiveStream.OpenAsync().ConfigureAwait(false);
             await openDelegate(ActiveStream).ConfigureAwait(false);
         }
-
-        public async Task<MessageWriteRequestResult<TReply>> WriteRequestAsync<TReply>(T request, Func<T, MessageWriteRequestResult<TReply>, Exception, bool> shouldRetry, TimeSpan timeout = default, bool flush = true) where TReply : T
-        {
-            var stream = ActiveStream;
-            var recoveredSignal = streamRecoveredSignal;
-            MessageWriteRequestResult<TReply> result = default;
-            Exception outerEx = null;
-            try
-            {
-                result = await stream.WriteRequestAsync<TReply>(request, timeout, flush).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                outerEx = ex;
-            }
-
-            if (shouldRetry(request, result, outerEx))
-            {
-                // if the old stream is done we need to wait for the new one.
-                if (stream.ReadCompleted || stream.WriteCompleted)
-                {
-                    var recoveredTask = recoveredSignal.Task;
-                    await Task.WhenAny(streamRecoverTimeoutSignal.Task, recoveredTask).ConfigureAwait(false);
-                    if (!recoveredTask.IsCompleted || recoveredTask.Result == null)
-                    {
-                        if (outerEx != null)
-                        {
-                            throw outerEx;
-                        }
-                        return result;
-                    }
-                    else
-                    {
-                        stream = recoveredTask.Result;
-                    }
-                }
-
-                // we are good to retry. we'll let this one throw if needed
-                result = await stream.WriteRequestAsync<TReply>(request, timeout, flush).ConfigureAwait(false);
-            }
-
-            return result;
-        }
-
+        
         public async Task<MessageWriteRequestResult<TReply>> WriteRequestAsync<TRequest, TReply>(TRequest request, Func<T, MessageWriteRequestResult<TReply>, Exception, bool> shouldRetry, TimeSpan timeout = default, bool flush = true) where TRequest : T, IRequest where TReply : T, IResponse
         {
             var stream = ActiveStream;
