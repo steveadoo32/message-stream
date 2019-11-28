@@ -20,10 +20,11 @@ namespace MessageStream.Sockets
             SocketReaderWriter socketReaderWriter,
             IMessageDeserializer<T> deserializer,
             IMessageSerializer<T> serializer,
+            RequestResponseKeyResolver<T> keyResolver = null,
             PipeOptions readerPipeOptions = null,
             PipeOptions writerPipeOptions = null,
             TimeSpan? writerCloseTimeout = null
-        ) : base(socketReaderWriter, deserializer, socketReaderWriter, serializer, readerPipeOptions, writerPipeOptions, writerCloseTimeout)
+        ) : base(socketReaderWriter, deserializer, socketReaderWriter, serializer, keyResolver, readerPipeOptions, writerPipeOptions, writerCloseTimeout)
         {
             this.socketReaderWriter = socketReaderWriter;
             SocketConfiguration = socketConfiguration;
@@ -32,11 +33,12 @@ namespace MessageStream.Sockets
         public ConcurrentSocketMessageStream(
             SocketConfiguration socketConfiguration,
             IMessageDeserializer<T> deserializer, 
-            IMessageSerializer<T> serializer, 
+            IMessageSerializer<T> serializer,
+            RequestResponseKeyResolver<T> keyResolver = null,
             PipeOptions readerPipeOptions = null, 
             PipeOptions writerPipeOptions = null, 
             TimeSpan? writerCloseTimeout = null
-        ) : this(socketConfiguration, new SocketReaderWriter(), deserializer, serializer, readerPipeOptions, writerPipeOptions, writerCloseTimeout)
+        ) : this(socketConfiguration, new SocketReaderWriter(), deserializer, serializer, keyResolver, readerPipeOptions, writerPipeOptions, writerCloseTimeout)
         {
         }
 

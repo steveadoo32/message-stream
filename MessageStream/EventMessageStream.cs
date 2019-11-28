@@ -57,6 +57,7 @@ namespace MessageStream
         private Task keepAliveTask;
         private bool closing = false;
         private TaskCompletionSource<bool> outerCloseTcs;
+        private long _messagesRead;
 
         private SemaphoreSlim outerCloseSemaphore;
 
@@ -65,6 +66,50 @@ namespace MessageStream
         public bool HandleMessagesAsynchronously { get; }
 
         public TimeSpan KeepAliveTimeSpan { get; }
+
+        public long EventChannelMessagesRead => _messagesRead;
+
+
+        /// <summary>
+        /// </summary>
+        /// <param name="handleMessageDelegate">Handles messages</param>
+        /// <param name="handleDisconnectionDelegate">Called when there is a problem with the reader. The stream will be closed before this is called.</param>
+        /// <param name="handleKeepAliveDelegate">Useful if you need to keep writing data every xxx seconds</param>
+        /// <param name="numReaders">How many tasks to spawn to read from the channel</param>
+        /// <param name="handleMessagesAsynchronously">
+        /// Set this to true if you are using a bounded reader channel and you call WriteRequestAsync inside of your handleMessageDelegate.
+        /// If you leave it false, you can run into a situation where your reader channel is being throttled, so the responses for WriteRequest will never come back,
+        /// which will cause even more blocking on the whole read pipeline.
+        /// </param>
+        /// <param name="keepAliveTimeSpan">How long until we wait until we invoke the keep alive delegate. Default is 30 seconds.</param>
+        public EventMessageStream(
+            IReader reader,
+            IMessageDeserializer<T> deserializer,
+            IWriter writer,
+            IMessageSerializer<T> serializer,
+            RequestResponseKeyResolver<T> rpcKeyResolver,
+            HandleMessageAsync handleMessageDelegate,
+            HandleDisconnectionAsync handleDisconnectionDelegate,
+            HandleKeepAliveAsync handleKeepAliveDelegate,
+            int numReaders = 1,
+            bool handleMessagesAsynchronously = false,
+            TimeSpan? keepAliveTimeSpan = null,
+            PipeOptions readerPipeOptions = null,
+            PipeOptions writerPipeOptions = null,
+            TimeSpan? writerCloseTimeout = null,
+            ChannelOptions readerChannelOptions = null,
+            ChannelOptions writerChannelOptions = null,
+            TimeSpan? readerFlushTimeout = null)
+            : base(reader, deserializer, writer, serializer, rpcKeyResolver, readerPipeOptions, writerPipeOptions, writerCloseTimeout, readerChannelOptions ?? CreateDefaultReaderChannelOptions(numReaders), writerChannelOptions, readerFlushTimeout)
+        {
+            this.handleMessageDelegate = handleMessageDelegate;
+            this.handleDisconnectionDelegate = handleDisconnectionDelegate;
+            this.handleKeepAliveDelegate = handleKeepAliveDelegate;
+
+            NumReaders = numReaders;
+            HandleMessagesAsynchronously = handleMessagesAsynchronously;
+            KeepAliveTimeSpan = keepAliveTimeSpan ?? TimeSpan.FromSeconds(30);
+        }
 
         /// <summary>
         /// </summary>
@@ -95,15 +140,8 @@ namespace MessageStream
             ChannelOptions readerChannelOptions = null,
             ChannelOptions writerChannelOptions = null,
             TimeSpan? readerFlushTimeout = null)
-            : base(reader, deserializer, writer, serializer, readerPipeOptions, writerPipeOptions, writerCloseTimeout, readerChannelOptions ?? CreateDefaultReaderChannelOptions(numReaders), writerChannelOptions, readerFlushTimeout)
+            : this(reader, deserializer, writer, serializer, null, handleMessageDelegate, handleDisconnectionDelegate, handleKeepAliveDelegate, numReaders, handleMessagesAsynchronously, keepAliveTimeSpan, readerPipeOptions, writerPipeOptions, writerCloseTimeout, readerChannelOptions, writerChannelOptions, readerFlushTimeout)
         {
-            this.handleMessageDelegate = handleMessageDelegate;
-            this.handleDisconnectionDelegate = handleDisconnectionDelegate;
-            this.handleKeepAliveDelegate = handleKeepAliveDelegate;
-
-            NumReaders = numReaders;
-            HandleMessagesAsynchronously = handleMessagesAsynchronously;
-            KeepAliveTimeSpan = keepAliveTimeSpan ?? TimeSpan.FromSeconds(30);
         }
 
         /// <summary>
@@ -113,8 +151,9 @@ namespace MessageStream
         /// <returns></returns>
         public override async Task OpenAsync()
         {
+            _messagesRead = 0;
             closing = false;
-            outerCloseTcs = new TaskCompletionSource<bool>();
+            outerCloseTcs = new TaskCompletionSource<bool>(TaskContinuationOptions.RunContinuationsAsynchronously);
 
             // Let the underlying message stream infrastructure startup.
             await base.OpenAsync().ConfigureAwait(false);
@@ -234,21 +273,42 @@ namespace MessageStream
             {
                 state.result = await state.stream.ReadAsync().ConfigureAwait(false);
 
+                Interlocked.Increment(ref _messagesRead);
+
                 // Check that result isn't null. If it is we have a message we couldn't read.
                 if (state.result.ReadResult)
                 {
-                    state.handleTask = state.stream.handleMessageDelegate(state.result.Result);
-
-                    if (!state.stream.HandleMessagesAsynchronously)
+                    try
                     {
-                        await state.handleTask.ConfigureAwait(false);
+                        state.handleTask = state.stream.handleMessageDelegate(state.result.Result);
+
+                        if (!state.stream.HandleMessagesAsynchronously)
+                        {
+                            await state.handleTask.ConfigureAwait(false);
+                        }
+                        else if (!state.handleTask.IsCompleted)
+                        {
+                            // Handle this result async.
+                            _ = state.handleTask.AsTask().ContinueWith(result =>
+                            {
+                                if (result.IsFaulted)
+                                {
+                                    Logger.Error(result.Exception, "Error handling message");
+                                }
+                            });
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Error(ex, "Error handling message");
                     }
                 }
 
-                if (state.result.IsCompleted)
+                if (state.result.IsCompleted || state.result.Error)
                 {
                     // We have to run this in an async task becuase CloseAsync blocks on the read tasks
                     // so we could end up in a deadlock.
+                    Logger.Error($"Closing stream because we are errored or completed. {{ error={state.result.Error}, completed={state.result.IsCompleted} }}");
                     _ = Task.Factory.StartNew(async obj => await (obj as OuterReadState).stream.OuterCloseAsync((obj as OuterReadState).result.Exception), state, TaskCreationOptions.DenyChildAttach);
 
                     break;

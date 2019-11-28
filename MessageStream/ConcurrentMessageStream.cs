@@ -30,6 +30,7 @@ namespace MessageStream
         };
 
         private readonly TimeSpan? readerFlushTimeout;
+        private readonly RequestResponseKeyResolver<T> keyResolver;
         private readonly ChannelOptions readerChannelOptions;
         private Channel<MessageReadResult<T>> readChannel;
         private Task channelReadTask;
@@ -38,7 +39,20 @@ namespace MessageStream
         private Channel<MessageWriteRequest> writeChannel;
         private Task channelWriteTask;
 
-        private ConcurrentQueue<MessageWriteRequestResult> requestQueue;
+        ConcurrentDictionary<string, MessageWriteRequestResult> requests;
+
+        private long _writeChannelMessagesWritten;
+        private long _writeChannelMessagesRead;
+        private long _readChannelMessagesWritten;
+        private long _readChannelMessagesRead;
+
+        public long WriteChannelMessagesWritten => _writeChannelMessagesWritten;
+
+        public long WriteChannelMessagesRead => _writeChannelMessagesRead;
+
+        public long ReadChannelMessagesWritten => _readChannelMessagesWritten;
+
+        public long ReadChannelMessagesRead => _readChannelMessagesRead;
 
         /// <summary>
         /// </summary>
@@ -54,6 +68,7 @@ namespace MessageStream
             IMessageDeserializer<T> deserializer,
             IWriter writer,
             IMessageSerializer<T> serializer,
+            RequestResponseKeyResolver<T> keyResolver = null,
             PipeOptions readerPipeOptions = null,
             PipeOptions writerPipeOptions = null,
             TimeSpan? writerCloseTimeout = null,
@@ -62,6 +77,7 @@ namespace MessageStream
             TimeSpan? readerFlushTimeout = null)
             : base(reader, deserializer, writer, serializer, readerPipeOptions, writerPipeOptions, writerCloseTimeout)
         {
+            this.keyResolver = keyResolver;
             this.readerChannelOptions = readerChannelOptions ?? DefaultReaderChannelOptions;
             this.writerChannelOptions = writerChannelOptions ?? DefaultWriterChannelOptions;
             this.readerFlushTimeout = readerFlushTimeout;
@@ -71,6 +87,11 @@ namespace MessageStream
 
         public override async Task OpenAsync()
         {
+            _writeChannelMessagesRead = 0;
+            _writeChannelMessagesWritten = 0;
+            _readChannelMessagesWritten = 0;
+            _readChannelMessagesRead = 0;
+
             await base.OpenAsync().ConfigureAwait(false);
 
             Channel<TInner> GetChannel<TInner>(ChannelOptions options)
@@ -88,7 +109,7 @@ namespace MessageStream
             readChannel = GetChannel<MessageReadResult<T>>(readerChannelOptions);
             writeChannel = GetChannel<MessageWriteRequest>(writerChannelOptions);
 
-            requestQueue = new ConcurrentQueue<MessageWriteRequestResult>();
+            requests = new ConcurrentDictionary<string, MessageWriteRequestResult>();
 
             channelReadTask = Task.Run(ReadLoopAsync);
             channelWriteTask = Task.Run(WriteLoopAsync);
@@ -108,7 +129,10 @@ namespace MessageStream
 
             // Try to write the rest of the messages before closing.
             oldWriteChannel.Writer.Complete();
-            await oldWriteChannel.Reader.Completion.ConfigureAwait(false);
+            await Task.WhenAny(
+                Task.Delay(TimeSpan.FromSeconds(10)),
+                oldWriteChannel.Reader.Completion
+            ).ConfigureAwait(false);
 
             // Close the underlying stream
             await base.CloseAsync().ConfigureAwait(false);
@@ -132,8 +156,6 @@ namespace MessageStream
 
             channelReadTask = null;
             channelWriteTask = null;
-
-            requestQueue = null;
         }
 
         #endregion
@@ -177,6 +199,8 @@ namespace MessageStream
             // Check right away if we can read
             if (reader.TryRead(out result))
             {
+                Interlocked.Increment(ref _readChannelMessagesRead);
+
                 return result;
             }
 
@@ -187,6 +211,8 @@ namespace MessageStream
                 {
                     continue;
                 }
+
+                Interlocked.Increment(ref _readChannelMessagesRead);
 
                 return result;
             }
@@ -208,7 +234,7 @@ namespace MessageStream
         {
             var writer = writeChannel?.Writer;
 
-            if (writer == null)
+            if (writer == null || WriteCompleted)
             {
                 return new MessageWriteResult
                 {
@@ -218,7 +244,7 @@ namespace MessageStream
                 };
             }
 
-            var writeRequest = new MessageWriteRequest(message, null, null, null, flush);
+            var writeRequest = new MessageWriteRequest(message, null, null, flush, null);
 
             // Write the request
             bool writeable = false;
@@ -251,7 +277,7 @@ namespace MessageStream
         public async ValueTask<MessageWriteResult> WriteAndWaitAsync(T message, bool flush = true)
         {
             var writer = writeChannel?.Writer;
-            if (writer == null)
+            if (writer == null || WriteCompleted)
             {
                 return new MessageWriteResult
                 {
@@ -262,7 +288,7 @@ namespace MessageStream
             }
 
             var tcs = new TaskCompletionSource<MessageWriteResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var writeRequest = new MessageWriteRequest(message, tcs, null, null, flush);
+            var writeRequest = new MessageWriteRequest(message, tcs, null, flush, null);
 
             // Write the request
             bool writeable = false;
@@ -294,18 +320,41 @@ namespace MessageStream
             return await tcs.Task.ConfigureAwait(false);
         }
 
+
+        /// <summary>
+        /// Writes a message and waits for a specific message to come back. You need to register key resolvers in the constructor for this way
+        /// </summary>
+        public async Task<MessageWriteRequestResult<TReply>> WriteRequestAsync<TReply>(T request, TimeSpan timeout = default, bool flush = true) where TReply : T
+        {
+            if (keyResolver == null)
+            {
+                throw new Exception("KeyResolver must be set if using this method.");
+            }
+
+            string key = keyResolver.GetKey(request);
+            if (key == null)
+            {
+                throw new ArgumentException($"Cannot find key for request {request}.");
+            }
+
+            return await WriteRequestInternalAsync<TReply>(request, timeout, flush, key).ConfigureAwait(false);
+        }
+
         /// <summary>
         /// Writes a message and waits for a specific message to come back.
         /// </summary>
-        public async ValueTask<MessageWriteRequestResult<TReply>> WriteRequestAsync<TReply>(T message, Func<T, bool> matchFunc = null, TimeSpan timeout = default, bool flush = true) where TReply : T
+        public async Task<MessageWriteRequestResult<TReply>> WriteRequestAsync<TRequest, TReply>(TRequest request, TimeSpan timeout = default, bool flush = true) where TRequest : T, IRequest where TReply : T, IResponse
         {
-            // TODO it will complicate the code, but we can save allocations on this delegate if we 
-            // push this default match behavior into the read loop. We can just attach the type of TReply
-            // to MessageWriteRequest.
-            matchFunc = matchFunc ?? (reply => DefaultReplyMatch(reply, typeof(TReply)));
+            return await WriteRequestInternalAsync<TReply>(request, timeout, flush, request.GetKey()).ConfigureAwait(false);
+        }
 
+        /// <summary>
+        /// Writes a message and waits for a specific message to come back.
+        /// </summary>
+        private async Task<MessageWriteRequestResult<TReply>> WriteRequestInternalAsync<TReply>(T request, TimeSpan timeout, bool flush, string requestKey) where TReply : T
+        {
             var writer = writeChannel?.Writer;
-            if (writer == null)
+            if (writer == null || WriteCompleted)
             {
                 return new MessageWriteRequestResult<TReply>
                 {
@@ -315,16 +364,19 @@ namespace MessageStream
                 };
             }
 
-            var resultTcs = new TaskCompletionSource<MessageReadResult<T>>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var writeRequest = new MessageWriteRequest(message, null, resultTcs, matchFunc, flush);
+            TaskCompletionSource<MessageReadResult<T>> resultTcs = new TaskCompletionSource<MessageReadResult<T>>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var writeRequest = new MessageWriteRequest(request, null, resultTcs, flush, requestKey);
 
-            CancellationTokenSource cts = null;
+            CancellationToken cancellationToken = default;
+            CancellationTokenRegistration cancellationTokenTokenRegistration = default;
             if (timeout.TotalMilliseconds > 0)
             {
-                cts = new CancellationTokenSource(timeout);
-                cts.Token.Register(state =>
+                cancellationToken = CoalescedTokens.FromTimeout(timeout);
+                cancellationTokenTokenRegistration = cancellationToken.Register(state =>
                 {
                     var tcs = (TaskCompletionSource<MessageReadResult<T>>)state;
+                    // todo move this somewhere else.
+                    requests?.TryRemove(requestKey, out var messageWriteRequestResult);
                     tcs.TrySetResult(new MessageReadResult<T>
                     {
                         Error = true,
@@ -340,6 +392,8 @@ namespace MessageStream
             bool writeable = false;
             if (writer.TryWrite(writeRequest))
             {
+                Interlocked.Increment(ref _writeChannelMessagesWritten);
+
                 writeable = true;
             }
             else
@@ -348,6 +402,8 @@ namespace MessageStream
                 {
                     if (writer.TryWrite(writeRequest))
                     {
+                        Interlocked.Increment(ref _writeChannelMessagesWritten);
+
                         break;
                     }
                 }
@@ -367,7 +423,10 @@ namespace MessageStream
             MessageReadResult<T> result = await resultTcs.Task.ConfigureAwait(false);
 
             // Make sure we dispose our cts
-            cts?.Dispose();
+            if (timeout.TotalMilliseconds > 0)
+            {
+                cancellationTokenTokenRegistration.Dispose();
+            }
 
             MessageReadResult<TReply> castedResult = new MessageReadResult<TReply>
             {
@@ -402,73 +461,50 @@ namespace MessageStream
 
             // Use a linked list because 99% of the time we should be matching the requests in order,
             // so we'll end up removing the first element of the list.
-            var requests = new LinkedList<MessageWriteRequestResult>();
             bool readOuter = true;
             try
             {
+                bool currResultRequestHandled = false;
                 MessageReadResult<T> result = await base.ReadAsync().ConfigureAwait(false);
                 while (readOuter && await writer.WaitToWriteAsync().ConfigureAwait(false))
                 {
                     while (true)
                     {
+                        // Only dequeue the ones in this batch. We can end up being stuck here if there are 
+                        // messages being written at a faster rate than we read
+                        if (!currResultRequestHandled)
+                        {
+                            if (result.ReadResult)
+                            {
+                                var localRequests = requests;
+                                var responseKey = result.Result is IResponse response ? response.GetKey() : keyResolver?.GetKey(result.Result);
+                                MessageWriteRequestResult requestResult = default;
+                                if (responseKey != null && (localRequests?.TryRemove(responseKey, out requestResult) ?? false))
+                                {
+                                    requestResult.resultTcs.TrySetResult(result);
+                                }
+                            }
+                        }
+                        
+                        // Don't process this request logic again if we have to wait to write.
+                        currResultRequestHandled = true;
+
                         // Try to write, if fails, we just wait to write this result again.
                         if (!writer.TryWrite(result))
                         {
                             break;
                         }
 
-                        // Only dequeue the ones in this batch. We can end up being stuck here if there are 
-                        // messages being written at a faster rate than we read
-                        int requestQueueDequeueCount = 0;
-                        int requestQueueDequeueMax = requestQueue.Count;
-                        while (requestQueue.TryDequeue(out var request))
-                        {
-                            if (!request.resultTcs.Task.IsCompleted)
-                            {
-                                requests.AddLast(request);
-                            }
-
-                            if (++requestQueueDequeueCount >= requestQueueDequeueMax)
-                            {
-                                break;
-                            }
-                        }
-
-                        if (result.ReadResult)
-                        {
-                            // Loop through the linked list and complete any requests that we match against.
-                            // NOTE: requests that time out will have requests that sit in this list until the next message is read and they can be removed.
-                            var currentNode = requests.First;
-                            while (currentNode != null)
-                            {
-                                // If we match we need to set the result and remove the request
-                                if (currentNode.Value.resultMatchFunc(result.Result))
-                                {
-                                    currentNode.Value.resultTcs.TrySetResult(result);
-
-                                    var next = currentNode.Next;
-                                    requests.Remove(currentNode);
-                                    currentNode = null; // we matched so don't process anymore.
-                                }
-                                // If the tcs is complete remove it so we dont keep processing.
-                                else if (currentNode.Value.resultTcs.Task.IsCompleted)
-                                {
-                                    var next = currentNode.Next;
-                                    requests.Remove(currentNode);
-                                    currentNode = next;
-                                }
-                                else
-                                {
-                                    currentNode = currentNode.Next;
-                                }
-                            }
-                        }
+                        Interlocked.Increment(ref _readChannelMessagesWritten);
 
                         if (result.IsCompleted)
                         {
                             readOuter = false;
                             break;
                         }
+
+                        // Mark the next message to process request logic.
+                        currResultRequestHandled = false;
 
                         // Read the next result
                         result = await base.ReadAsync().ConfigureAwait(false);
@@ -480,25 +516,6 @@ namespace MessageStream
                 Logger.Error(ex, "Error in read loop.");
             }
 
-            // Clear out the rest of the waiting requests.
-            while (requestQueue.TryDequeue(out var request))
-            {
-                requests.AddLast(request);
-            }
-
-            foreach (var request in requests)
-            {
-                request.resultTcs.TrySetResult(new MessageReadResult<T>
-                {
-                    Error = true,
-                    Exception = new TaskCanceledException("Request timed out"),
-                    IsCompleted = false,
-                    Result = default,
-                    ReadResult = false
-                });
-            }
-
-            requests.Clear();
             writer.Complete();
         }
 
@@ -513,41 +530,65 @@ namespace MessageStream
 
             try
             {
-                bool readOuter = true;
-                while (readOuter && await reader.WaitToReadAsync().ConfigureAwait(false))
+                while (await reader.WaitToReadAsync().ConfigureAwait(false))
                 {
                     while (reader.TryRead(out var writeRequest))
                     {
+                        Interlocked.Increment(ref _writeChannelMessagesRead);
+
                         MessageWriteRequestResult request = default;
                         if (writeRequest.resultTcs != null)
                         {
-                            request = new MessageWriteRequestResult(writeRequest.resultTcs, writeRequest.resultMatchFunc, writeRequest.message);
-                            requestQueue.Enqueue(request);
-                        }
-
-                        var writeResult = await base.WriteAsync(writeRequest.message, writeRequest.flush).ConfigureAwait(false);
-                        if (writeRequest.writeTcs != null)
-                        {
-                            writeRequest.writeTcs.TrySetResult(writeResult);
-                        }
-
-                        // If the stream is closed we can quickly complete the request here. we dont care about the message still being in the request queue because that task will complete soon as well.
-                        if ((writeResult.Error || writeResult.IsCompleted) && writeRequest.resultTcs != null)
-                        {
-                            request.resultTcs.TrySetResult(new MessageReadResult<T>
+                            request = new MessageWriteRequestResult(writeRequest.resultTcs);
+                            // This isn't a great design.
+                            if (!requests.TryAdd(writeRequest.requestKey, request))
                             {
-                                Error = writeResult.Error,
-                                Exception = writeResult.Exception,
-                                IsCompleted = writeResult.IsCompleted,
-                                ReadResult = false,
-                                Result = default
-                            });
+                                writeRequest.resultTcs.TrySetResult(new MessageReadResult<T>
+                                {
+                                    Error = false,
+                                    ReadResult = false,
+                                    IsCompleted = false,
+                                    Exception = new DuplicateRequestException($"Duplicate request id {writeRequest.requestKey}"),
+                                    ReceivedTimeUtc = DateTime.UtcNow,
+                                    ParsedTimeUtc = DateTime.UtcNow
+                                });
+
+                                continue;
+                            }
                         }
+
+                        try
+                        {
+                            var writeResult = await base.WriteAsync(writeRequest.message, writeRequest.flush).ConfigureAwait(false);
+                            if (writeRequest.writeTcs != null)
+                            {
+                                writeRequest.writeTcs.TrySetResult(writeResult);
+                            }
+
+                            // If the stream is closed we can quickly complete the request here. we dont care about the message still being in the request queue because that task will complete soon as well.
+                            if ((writeResult.Error || writeResult.IsCompleted) && writeRequest.resultTcs != null)
+                            {
+                                request.resultTcs.TrySetResult(new MessageReadResult<T>
+                                {
+                                    Error = writeResult.Error,
+                                    Exception = writeResult.Exception,
+                                    IsCompleted = writeResult.IsCompleted,
+                                    ReadResult = false,
+                                    Result = default
+                                });
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Error(ex, "Error writing message in concurrent message stream.");
+                        }
+
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                Logger.Error(ex, "Error in concurrent message stream write loop.");
                 // This happens if the underlying stream is closed and we have a message in flight.
                 // We can just ignore it.
             }
@@ -555,12 +596,47 @@ namespace MessageStream
             // process left over requests.
             while (reader.TryRead(out var writeRequest))
             {
+                MessageWriteRequestResult request = default;
+                if (writeRequest.resultTcs != null)
+                {
+                    request = new MessageWriteRequestResult(writeRequest.resultTcs);
+                    if (!requests.TryAdd(writeRequest.requestKey, request))
+                    {
+                        writeRequest.resultTcs.TrySetResult(new MessageReadResult<T>
+                        {
+                            Error = false,
+                            ReadResult = false,
+                            IsCompleted = false,
+                            Exception = new DuplicateRequestException($"Duplicate request id {writeRequest.requestKey}"),
+                            ReceivedTimeUtc = DateTime.UtcNow,
+                            ParsedTimeUtc = DateTime.UtcNow
+                        });
+
+                        continue;
+                    }
+                }
+
                 var writeResult = await base.WriteAsync(writeRequest.message, writeRequest.flush).ConfigureAwait(false);
                 if (writeRequest.writeTcs != null)
                 {
                     writeRequest.writeTcs.TrySetResult(writeResult);
                 }
             }
+
+            // Cancel pending requests
+            foreach (var requestResult in requests.Values)
+            {
+                requestResult.resultTcs.TrySetResult(new MessageReadResult<T>
+                {
+                    Error = true,
+                    Exception = new TaskCanceledException("Request timed out"),
+                    IsCompleted = false,
+                    Result = default,
+                    ReadResult = false
+                });
+            }
+
+            requests = null;
         }
 
 
@@ -572,20 +648,20 @@ namespace MessageStream
             public T message;
             public TaskCompletionSource<MessageWriteResult> writeTcs;
             public TaskCompletionSource<MessageReadResult<T>> resultTcs;
-            public Func<T, bool> resultMatchFunc;
             public bool flush;
+            public string requestKey;
 
             public MessageWriteRequest(T message,
                 TaskCompletionSource<MessageWriteResult> tcs,
                 TaskCompletionSource<MessageReadResult<T>> resultTcs,
-                Func<T, bool> resultMatchFunc,
-                bool flush) : this()
+                bool flush,
+                string requestKey) : this()
             {
                 this.message = message;
                 this.writeTcs = tcs;
                 this.resultTcs = resultTcs;
-                this.resultMatchFunc = resultMatchFunc;
                 this.flush = flush;
+                this.requestKey = requestKey;
             }
 
         }
@@ -594,20 +670,16 @@ namespace MessageStream
         {
 
             public TaskCompletionSource<MessageReadResult<T>> resultTcs;
-            public Func<T, bool> resultMatchFunc;
-            public T message;
 
             public MessageWriteRequestResult(
-                TaskCompletionSource<MessageReadResult<T>> resultTcs,
-                Func<T, bool> resultMatchFunc,
-                T message) : this()
+                TaskCompletionSource<MessageReadResult<T>> resultTcs
+            ) : this()
             {
                 this.resultTcs = resultTcs;
-                this.resultMatchFunc = resultMatchFunc;
-                this.message = message;
             }
 
         }
+
 
     }
 }

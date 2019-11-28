@@ -193,7 +193,7 @@ namespace MessageStream.Sockets.Server
                         msg => HandleMessagAsync(connection, msg),
                         (ex, expected) => HandleConnectionDisconnectAsync(connection, ex, expected),
                         () => HandleKeepAliveAsync(connection),
-                        1,
+                        2,
                         true,
                         keepAliveTimeSpan
                     );
@@ -312,9 +312,9 @@ namespace MessageStream.Sockets.Server
             /// <summary>
             /// Writes a message and waits for a specific message to come back.
             /// </summary>
-            public ValueTask<MessageWriteRequestResult<TReply>> WriteRequestAsync<TReply>(TMessage message, Func<TMessage, bool> matchFunc = null, TimeSpan timeout = default) where TReply : TMessage
+            public Task<MessageWriteRequestResult<TReply>> WriteRequestAsync<TReply>(TMessage message, TimeSpan timeout = default) where TReply : TMessage
             {
-                return MessageStream.WriteRequestAsync<TReply>(message, matchFunc, timeout);
+                return MessageStream.WriteRequestAsync<TReply>(message, timeout);
             }
 
         }

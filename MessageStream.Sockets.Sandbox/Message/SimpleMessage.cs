@@ -3,7 +3,7 @@
 namespace MessageStream.Sockets.Sandbox
 {
     [ProtoContract]
-    public class SimpleMessage
+    public class SimpleMessage : IRequest, IResponse
     {
 
         [ProtoMember(1)]
@@ -18,7 +18,20 @@ namespace MessageStream.Sockets.Sandbox
         [ProtoMember(4)]
         public bool Disconnect { get; set; }
 
+        [ProtoMember(5)]
+        public byte[] Dummy { get; set; }
+
         public bool Retried { get; set; }
+
+        string IRequest.GetKey()
+        {
+            return Id.ToString();
+        }
+
+        string IResponse.GetKey()
+        {
+            return Id.ToString();
+        }
 
     }
 }

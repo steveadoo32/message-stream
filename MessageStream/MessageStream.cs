@@ -21,7 +21,7 @@ namespace MessageStream
     {
 
         private static NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
-        
+
         private readonly IReader reader;
         private readonly IMessageDeserializer<T> deserializer;
         private readonly IWriter writer;
@@ -43,12 +43,25 @@ namespace MessageStream
 
         private Exception readException;
         private Exception writeException;
-        
+
+        private long _bytesRead;
+        private long _bytesWritten;
+        private long _messagesWritten;
+        private long _messagesRead;
+
         public bool Open { get; private set; }
 
         public bool ReadCompleted { get; private set; }
 
         public bool WriteCompleted { get; private set; }
+
+        public long MessagesWritten => _messagesWritten;
+
+        public long BytesWritten => _bytesWritten;
+
+        public long MessagesRead => _messagesRead;
+
+        public long BytesRead => _bytesRead;
 
         protected IMessageDeserializer<T> Deserializer => deserializer;
 
@@ -81,6 +94,11 @@ namespace MessageStream
 
         public virtual Task OpenAsync()
         {
+            _bytesRead = 0;
+            _bytesWritten = 0;
+            _messagesRead = 0;
+            _messagesWritten = 0;
+
             if (Open)
             {
                 throw new Exception("MessageStream is already open");
@@ -95,7 +113,7 @@ namespace MessageStream
             writePipe = new Pipe(
                 writerPipeOptions
             );
-            
+
             readCancellationTokenSource = new CancellationTokenSource();
             writeCancellationTokenSource = new CancellationTokenSource();
 
@@ -129,12 +147,14 @@ namespace MessageStream
 
             readCancellationTokenSource.Cancel();
             await readTask.ConfigureAwait(false);
+            readCancellationTokenSource.Dispose();
             readCancellationTokenSource = null;
             readTask = null;
 
             writePipe.Writer.Complete();
             writeCancellationTokenSource.CancelAfter(writerCloseTimeout);
             await writeTask.ConfigureAwait(false);
+            writeCancellationTokenSource.Dispose();
             writeCancellationTokenSource = null;
             writeTask = null;
 
@@ -164,9 +184,8 @@ namespace MessageStream
             bool partialMessage = false;
             T message = default;
             SequencePosition read = default;
-            
-            ReadResult result = await readPipe.Reader.ReadAsync().ConfigureAwait(false);
 
+            ReadResult result = await readPipe.Reader.ReadAsync().ConfigureAwait(false);
             // Try to read one full message.
             while (!Decode(result.Buffer, out read, out message))
             {
@@ -183,15 +202,16 @@ namespace MessageStream
                     break;
                 }
             }
+            DateTime parsedTimeUtc = DateTime.UtcNow;
 
             // Let the caller process the incoming buffer
             if (!partialMessage)
             {
                 await ProcessIncomingBufferAsync(message, result.Buffer.Slice(result.Buffer.Start, read)).ConfigureAwait(false);
+                Interlocked.Increment(ref _messagesRead);
             }
 
             var completed = result.Buffer.Length == 0 || partialMessage;
-
             if (!completed)
             {
                 readPipe.Reader.AdvanceTo(read);
@@ -200,7 +220,7 @@ namespace MessageStream
             {
                 ReadCompleted = completed;
             }
-            
+
             DateTime parsedTime = DateTime.UtcNow;
             return new MessageReadResult<T>
             {
@@ -210,10 +230,10 @@ namespace MessageStream
                 Result = message,
                 ReadResult = !partialMessage,
                 ReceivedTimeUtc = timeReceived,
-                ParsedTimeUtc = new DateTime(0)
+                ParsedTimeUtc = parsedTimeUtc
             };
         }
-        
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool Decode(in ReadOnlySequence<byte> buffer, out SequencePosition read, out T message)
         {
@@ -235,16 +255,25 @@ namespace MessageStream
             // Serialize
             var serializedMessage = SerializeMessage(message);
 
-            await ProcessOutgoingBufferAsync(message, serializedMessage).ConfigureAwait(false);
+            try
+            {
+                await ProcessOutgoingBufferAsync(message, serializedMessage).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "Error processing outgoing message buffer.");
+            }
 
             // Write the data into the Writer
             var result = await writePipe.Writer.WriteAsync(serializedMessage).ConfigureAwait(false);
+
+            Interlocked.Increment(ref _messagesWritten);
 
             if (flush)
             {
                 await writePipe.Writer.FlushAsync().ConfigureAwait(false);
             }
-            
+
             if (!WriteCompleted && result.IsCompleted)
             {
                 WriteCompleted = result.IsCompleted;
@@ -303,7 +332,7 @@ namespace MessageStream
         {
             var cancellationToken = readCancellationTokenSource.Token;
             bool cleanStop = false;
-            
+
             try
             {
                 while (!cancellationToken.IsCancellationRequested)
@@ -320,9 +349,11 @@ namespace MessageStream
                         Logger.Warn("Closing message stream because the reader returned 0 len.");
                         break;
                     }
-                    
+
                     // Write the data into the Writer
                     await readPipe.Writer.WriteAsync(memory.Slice(0, len), cancellationToken).ConfigureAwait(false);
+
+                    Interlocked.Add(ref _bytesRead, len);
 
                     // Flush
                     await readPipe.Writer.FlushAsync(cancellationToken).ConfigureAwait(false);
@@ -331,13 +362,10 @@ namespace MessageStream
             catch (Exception ex)
             {
                 cleanStop = cancellationToken.IsCancellationRequested;
-                if (!cleanStop)
-                {
-                    Logger.Error(ex, "Error in message stream read loop.");
-                    readException = ex;
-                }
+                Logger.Error(ex, $"Error in message stream read loop. Expected: {cleanStop}.");
+                readException = ex;
             }
-            
+
             readCancellationTokenSource.Cancel();
             readPipe.Writer.Complete();
 
@@ -357,13 +385,17 @@ namespace MessageStream
                     ReadResult result = await writePipe.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
 
                     // Write each buffer
+                    long bytes = 0;
                     foreach (var buffer in result.Buffer)
                     {
                         await writer.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
+                        bytes += buffer.Length;
                     }
 
                     // Complete the write
                     writePipe.Reader.AdvanceTo(result.Buffer.End);
+
+                    Interlocked.Add(ref _bytesWritten, bytes);
 
                     // Flush the rest of the data, then close.
                     if (result.IsCompleted)
@@ -375,24 +407,24 @@ namespace MessageStream
             catch (Exception ex)
             {
                 cleanStop = cancellationToken.IsCancellationRequested;
-                
+
                 if (!cleanStop)
                 {
                     Logger.Error(ex, "Error in message stream write loop.");
                     writeException = ex;
                     writeCancellationTokenSource.Cancel();
                 }
-                
+
                 writePipe.Reader.Complete();
             }
-            
+
             return cleanStop;
         }
 
         #endregion
 
         #region Virtual methods
-        
+
         /// <summary>
         /// Optionally processes an incoming buffer and it's associated message. The provided ReadOnlySequence is JUST the messages data,
         /// This allows consumers to provide their own way of allocating memory for processing.

@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using MessageStream.IO;
 using MessageStream.Message;
@@ -28,7 +29,8 @@ namespace MessageStream
         private readonly EventMessageStream<T>.HandleDisconnectionAsync disconnectionDelegate;
 
         private int numReconnectAttempts;
-        private TaskCompletionSource<bool> streamRecoveredSignal;
+        private TaskCompletionSource<bool> streamRecoverTimeoutSignal;
+        private TaskCompletionSource<EventMessageStream<T>> streamRecoveredSignal;
 
         public EventMessageStream<T> ActiveStream { get; private set; }
 
@@ -52,14 +54,15 @@ namespace MessageStream
 
         public async Task OpenAsync()
         {
-            streamRecoveredSignal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            streamRecoveredSignal = new TaskCompletionSource<EventMessageStream<T>>(TaskCreationOptions.RunContinuationsAsynchronously);
+            streamRecoverTimeoutSignal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             EventMessageStream<T> newStream = null;
             newStream = ActiveStream = getStreamDelegate((innerEx, innerExpected) => HandleDisconnectionAsync(newStream, innerEx, innerExpected));
             await ActiveStream.OpenAsync().ConfigureAwait(false);
             await openDelegate(ActiveStream).ConfigureAwait(false);
         }
 
-        public async ValueTask<MessageWriteRequestResult<TReply>> WriteRetryableRequestAsync<TReply>(T message, Func<T, MessageWriteRequestResult<TReply>, Exception, bool> shouldRetry, Func<T, bool> matchFunc = null, TimeSpan timeout = default, bool flush = true) where TReply : T
+        public async Task<MessageWriteRequestResult<TReply>> WriteRequestAsync<TReply>(T request, Func<T, MessageWriteRequestResult<TReply>, Exception, bool> shouldRetry, TimeSpan timeout = default, bool flush = true) where TReply : T
         {
             var stream = ActiveStream;
             var recoveredSignal = streamRecoveredSignal;
@@ -67,21 +70,21 @@ namespace MessageStream
             Exception outerEx = null;
             try
             {
-                result = await stream.WriteRequestAsync<TReply>(message, matchFunc, timeout, flush).ConfigureAwait(false);
+                result = await stream.WriteRequestAsync<TReply>(request, timeout, flush).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 outerEx = ex;
             }
 
-            if (shouldRetry(message, result, outerEx))
+            if (shouldRetry(request, result, outerEx))
             {
                 // if the old stream is done we need to wait for the new one.
                 if (stream.ReadCompleted || stream.WriteCompleted)
                 {
                     var recoveredTask = recoveredSignal.Task;
-                    await Task.WhenAny(Task.Delay(timeout), recoveredTask).ConfigureAwait(false);
-                    if (!recoveredTask.IsCompleted || !recoveredTask.Result)
+                    await Task.WhenAny(streamRecoverTimeoutSignal.Task, recoveredTask).ConfigureAwait(false);
+                    if (!recoveredTask.IsCompleted || recoveredTask.Result == null)
                     {
                         if (outerEx != null)
                         {
@@ -89,10 +92,64 @@ namespace MessageStream
                         }
                         return result;
                     }
+                    else
+                    {
+                        stream = recoveredTask.Result;
+                    }
                 }
 
                 // we are good to retry. we'll let this one throw if needed
-                result = await ActiveStream.WriteRequestAsync<TReply>(message, matchFunc, timeout, flush).ConfigureAwait(false);
+                result = await stream.WriteRequestAsync<TReply>(request, timeout, flush).ConfigureAwait(false);
+            }
+
+            return result;
+        }
+
+        public async Task<MessageWriteRequestResult<TReply>> WriteRequestAsync<TRequest, TReply>(TRequest request, Func<T, MessageWriteRequestResult<TReply>, Exception, bool> shouldRetry, TimeSpan timeout = default, bool flush = true) where TRequest : T, IRequest where TReply : T, IResponse
+        {
+            var stream = ActiveStream;
+            var recoveredTimeoutSignal = streamRecoverTimeoutSignal;
+            var recoveredSignal = streamRecoveredSignal;
+            MessageWriteRequestResult<TReply> result = default;
+            Exception outerEx = null;
+            try
+            {
+                result = await stream.WriteRequestAsync<TRequest, TReply>(request, timeout, flush).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                outerEx = ex;
+            }
+
+            if (shouldRetry(request, result, outerEx))
+            {
+                var recoveredTask = recoveredSignal.Task;
+
+                // We don't need to await if these are completed.
+                if (recoveredTask.IsCompleted && recoveredTask.Result == null)
+                {
+                    return result;
+                }
+
+                if (stream.ReadCompleted || stream.WriteCompleted)
+                {
+                    await Task.WhenAny(recoveredTimeoutSignal.Task, recoveredTask).ConfigureAwait(false);
+                    if (!recoveredTask.IsCompleted || recoveredTask.Result == null)
+                    {
+                        if (outerEx != null)
+                        {
+                            throw outerEx;
+                        }
+                        return result;
+                    }
+                    else
+                    {
+                        stream = recoveredTask.Result;
+                    }
+                }
+
+                // we are good to retry. we'll let this one throw if needed
+                result = await stream.WriteRequestAsync<TRequest, TReply>(request, timeout, flush).ConfigureAwait(false);
             }
 
             return result;
@@ -109,6 +166,12 @@ namespace MessageStream
                     await disconnectionDelegate(ex, expected).ConfigureAwait(false);
                     return;
                 }
+
+                var cts = new CancellationTokenSource((int) (maxReconnectAttempts * reconnectBackoff.TotalMilliseconds));
+                var ctsRegistration = cts.Token.Register(() =>
+                {
+                    streamRecoverTimeoutSignal.TrySetResult(false);
+                });
 
                 Logger.Error(ex, "MessageStream errored. Attempting to recover...");
 
@@ -148,7 +211,8 @@ namespace MessageStream
                 // if we didnt succeed then close the new stream and send the disconnect event
                 if (!success)
                 {
-                    streamRecoveredSignal.TrySetResult(false);
+                    streamRecoveredSignal.TrySetResult(null);
+                    streamRecoverTimeoutSignal.TrySetResult(true);
                     try
                     {
                         await closeDelegate(newStream).ConfigureAwait(false);
@@ -164,16 +228,23 @@ namespace MessageStream
                 else
                 {
                     ActiveStream = newStream;
-                    streamRecoveredSignal.TrySetResult(true);
-                    streamRecoveredSignal = new TaskCompletionSource<bool>();
+                    streamRecoveredSignal.TrySetResult(newStream);
+                    streamRecoverTimeoutSignal.TrySetResult(false);
+                    streamRecoveredSignal = new TaskCompletionSource<EventMessageStream<T>>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    streamRecoverTimeoutSignal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                     Logger.Info("MessageStream recovered.");
                 }
+
+                ctsRegistration.Dispose();
+                cts.Dispose();
             });
             return new ValueTask();
         }
 
         public async Task CloseAsync()
         {
+            streamRecoveredSignal.TrySetResult(null);
+            streamRecoverTimeoutSignal.TrySetResult(false);
             await closeDelegate(ActiveStream).ConfigureAwait(false);
             await ActiveStream.CloseAsync().ConfigureAwait(false);
         }

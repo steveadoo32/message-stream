@@ -12,6 +12,8 @@ namespace MessageStream.Sockets
     public class EventSocketMessageStream<T> : EventMessageStream<T>
     {
 
+        private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
+
         private readonly SocketReaderWriter socketReaderWriter;
 
         public SocketConfiguration SocketConfiguration { get; }
@@ -65,10 +67,34 @@ namespace MessageStream.Sockets
 
             await base.OpenAsync().ConfigureAwait(false);
         }
-        
+
         protected override async Task CleanupAsync()
         {
-            await socketReaderWriter.DisconnectAsync().ConfigureAwait(false);
+            try
+            {
+                // This could throw an exception, we aren't sure so we'll catch it.
+                await socketReaderWriter.DisconnectAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, $"Error disconnecting socket.");
+            }
+        }
+
+        // The sockets dont cancel their read when we cancel the token so this forces the read operation to stop.
+        protected override async Task InnerCloseAsync()
+        {
+            try
+            {
+                // This could throw an exception, we aren't sure so we'll catch it.
+                await socketReaderWriter.DisconnectAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, $"Error disconnecting socket.");
+            }
+
+            await base.InnerCloseAsync().ConfigureAwait(false);
         }
 
     }

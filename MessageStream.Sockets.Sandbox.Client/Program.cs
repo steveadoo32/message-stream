@@ -10,8 +10,18 @@ namespace MessageStream.Sockets.Sandbox.Client
 {
     class Program
     {
+
+        private static int globalMessageId = 0;
+        private static TimeSpan RequestTimeout = TimeSpan.FromSeconds(30);
+
         static void Main(string[] args)
         {
+            string ip = "172.16.40.228";
+            if (args.Length > 0)
+            {
+                ip = args[0];
+            }
+
             var config = new NLog.Config.LoggingConfiguration();
 
             var logbatch = new NLog.Targets.FileTarget("logbatch") { FileName = "log.txt" };
@@ -27,39 +37,65 @@ namespace MessageStream.Sockets.Sandbox.Client
             Console.WriteLine("Press enter to proceed to client connection.");
             Console.ReadLine();
 
-            for (int i = 0; i < 10; i++)
+           // int workerThreads, completionPortThreads;
+            //ThreadPool.GetMaxThreads(out workerThreads, out completionPortThreads);
+            //workerThreads = 2;
+            //ThreadPool.SetMaxThreads(workerThreads, completionPortThreads);
+
+            for (int i = 0; i < 50; i++)
             {
-                var clientSandbox = new SocketClientSandbox("127.0.0.1", port);
+                var clientSandbox = new SocketClientSandbox(ip, port);
                 var random = new Random();
-                Console.WriteLine($"Simulating client {i} with { (((i % 2) == 0) ? "server" : "client") } disconnect test.");
+                Console.WriteLine($"Simulating client with { (((i % 2) == 0) ? "server" : "client") } disconnect test.");
                 Task.Run(async () =>
                 {
                     await clientSandbox.StartAsync().ConfigureAwait(false);
 
-                    await RunSuccessfulBatchAsync(clientSandbox, random, 40, 100, 100, 200);
-                    await RunRandomFailureBatchAsync(clientSandbox, random, 40, 100, 100, 200);
-                    await RunSuccessfulBatchAsync(clientSandbox, random, 40, 100, 100, 200);
+                    Console.WriteLine();
+                    for (int x = 0; x < 10; x++)
+                    {
+                        await Task.WhenAll(RunSuccessfulBatchAsync(clientSandbox, random, 200, 200, 1000, 500), RunSuccessfulBatchAsync(clientSandbox, random, 100, 120, 1000, 400));
+                    }
+                    Console.WriteLine();
+                    for (int x = 0; x < 10; x++)
+                    {
+                        await Task.WhenAll(RunRandomFailureBatchAsync(clientSandbox, random, 40, 100, 100, 300), RunSuccessfulBatchAsync(clientSandbox, random, 100, 200, 1000, 300));
+                    }
+                    Console.WriteLine();
+                    for (int x = 0; x < 10; x++)
+                    {
+                        await RunSuccessfulBatchAsync(clientSandbox, random, 65, 125, 100, 300);
+                    }
+                    Console.WriteLine();
 
                     if ((i % 2) == 0)
                     {
+                        Console.WriteLine();
                         await RunBatchWithServerDisconnectAsync(clientSandbox, random);
+                        //await Task.WhenAll(RunBatchWithServerDisconnectAsync(clientSandbox, random), RunSuccessfulBatchAsync(clientSandbox, random, 60, 120, 100, 300));
+                        Console.WriteLine();
                     }
                     else
                     {
                         await RunBatchWithClientDisconnectAsync(clientSandbox, random);
                     }
 
-                    Console.WriteLine("Press enter to complete.");
-                    Console.ReadLine();
+                    Console.WriteLine("Completed batch " + i);
 
-                    var result = await clientSandbox.ClientStream.ActiveStream.WriteRequestAsync<SimpleMessage>(new SimpleMessage
+                    var result = await clientSandbox.ClientStream.ActiveStream.WriteRequestAsync<SimpleMessage, SimpleMessage>(new SimpleMessage
                     {
                         Id = 1,
                         Value = 123123,
-                        Disconnect = true
-                    }, msg => msg.Id == 1, TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+                        Disconnect = false
+                    }, RequestTimeout).ConfigureAwait(false);
+
+                    Console.WriteLine("Final message check result: " + result.Result.ReadResult);
 
                     await clientSandbox.StopAsync().ConfigureAwait(false);
+
+                    Console.WriteLine("Stopped stream.");
+
+                    await Task.Delay(5000);
                 }).Wait();
             }
 
@@ -99,33 +135,38 @@ namespace MessageStream.Sockets.Sandbox.Client
             Console.WriteLine($"Simulating {batchCount} success batches with random amount of messages per batch.");
             for (int i = 0; i < batchCount; i++)
             {
-                successBatches.Add(Task.Run(async () =>
+                successBatches.Add(Task.Run(() =>
                 {
-                    var msgs = Enumerable.Range(0, betMin + random.Next(betCount)).Select(async _ =>
+                    var msgs = Enumerable.Range(0, betMin + random.Next(betCount)).Select(_ =>
                     {
                         int thisId = Interlocked.Increment(ref messageId);
 
                         var start = DateTime.UtcNow;
-                        var result = await clientSandbox.ClientStream.WriteRetryableRequestAsync<SimpleMessage>(new SimpleMessage
+                        return clientSandbox.ClientStream.WriteRequestAsync<SimpleMessage, SimpleMessage>(new SimpleMessage
                         {
-                            Id = thisId,
-                            Value = random.Next(100)
-                        }, ShouldRetryMessage, msg => msg.Id == thisId, TimeSpan.FromSeconds(20)).ConfigureAwait(false);
-                        //var result = await clientSandbox.ClientStream.ActiveStream.WriteRequestAsync<SimpleMessage>(new SimpleMessage
-                        //{
-                        //    Id = thisId,
-                        //    Value = random.Next(100)
-                        //}, msg => msg.Id == thisId, TimeSpan.FromSeconds(20)).ConfigureAwait(false);
-                        var end = DateTime.UtcNow - start;
-                        Interlocked.Add(ref time, (long) end.TotalMilliseconds);
-                        if (result.Result.Error)
+                            Id = Interlocked.Increment(ref globalMessageId),
+                            Value = random.Next(100),
+                            Dummy = Enumerable.Range(0, 200).Select(b => (byte)b).ToArray()
+                        }, ShouldRetryMessage, RequestTimeout).ContinueWith(taskResult =>
                         {
-                            // Debugger.Break();
-                        }
+                            var result = taskResult.Result;
 
-                        return !result.Error && !result.Result.Error && !result.IsCompleted ? 1 : 0;
+                            //var result = await clientSandbox.ClientStream.ActiveStream.WriteRequestAsync<SimpleMessage>(new SimpleMessage
+                            //{
+                            //    Id = thisId,
+                            //    Value = random.Next(100)
+                            //}, msg => msg.Id == thisId, TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+                            var end = DateTime.UtcNow - start;
+                            Interlocked.Add(ref time, (long)end.TotalMilliseconds);
+                            if (result.Result.Error)
+                            {
+                                // Debugger.Break();
+                            }
+
+                            return !result.Error && !result.Result.Error && !result.IsCompleted ? 1 : 0;
+                        });
                     });
-                    return await Task.WhenAll(msgs).ConfigureAwait(false);
+                    return Task.WhenAll(msgs);
                 }));
             }
             var successCount = (await Task.WhenAll(successBatches).ConfigureAwait(false)).SelectMany(i => i).Sum(i => i);
@@ -134,8 +175,8 @@ namespace MessageStream.Sockets.Sandbox.Client
             if (successCount != messageId)
             {
                 Console.WriteLine($"Should have received {messageId} success messages but received {successCount}");
-                Console.ReadLine();
-                Debugger.Break();
+               // Console.ReadLine();
+                //Debugger.Break();
             }
             else
             {
@@ -166,11 +207,12 @@ namespace MessageStream.Sockets.Sandbox.Client
                         }
                         var message = new SimpleMessage
                         {
-                            Id = thisId,
+                            Id = Interlocked.Increment(ref globalMessageId),
                             Value = random.Next(100),
-                            DontReply = dontReply
+                            DontReply = dontReply,
+                            Dummy = Enumerable.Range(0, 200).Select(b => (byte)b).ToArray()
                         };
-                        var result = await clientSandbox.ClientStream.WriteRetryableRequestAsync<SimpleMessage>(message, ShouldRetryMessage, msg => msg.Id == thisId, TimeSpan.FromSeconds(15)).ConfigureAwait(false);
+                        var result = await clientSandbox.ClientStream.WriteRequestAsync<SimpleMessage, SimpleMessage>(message, ShouldRetryMessage, RequestTimeout).ConfigureAwait(false);
                         if (message.Retried)
                         {
                             Interlocked.Increment(ref retries);
@@ -187,8 +229,7 @@ namespace MessageStream.Sockets.Sandbox.Client
             if (failedCount > 0)
             {
                 Console.WriteLine($"Should have received 0 failures but received {failedCount} failed and {successCount} success.");
-                Console.ReadLine();
-                Debugger.Break();
+               // Console.ReadLine();
             }
             else
             {
@@ -197,8 +238,7 @@ namespace MessageStream.Sockets.Sandbox.Client
             if (retries != expectedRetries)
             {
                 Console.WriteLine($"Should have received {expectedRetries} retries messages but received {retries}");
-                Console.ReadLine();
-                Debugger.Break();
+                //Console.ReadLine();
             }
             else
             {
@@ -207,8 +247,7 @@ namespace MessageStream.Sockets.Sandbox.Client
             if (successCount != messageId)
             {
                 Console.WriteLine($"Should have received {messageId} success messages but received {successCount}");
-                Console.ReadLine();
-                Debugger.Break();
+              //  Console.ReadLine();
             }
             else
             {
@@ -222,7 +261,7 @@ namespace MessageStream.Sockets.Sandbox.Client
             int expectedSuccess = 0;
             // Simulate random no reply 10 batches
             var randomFailureBatches = new List<Task<MessageWriteRequestResult<SimpleMessage>[]>>();
-            Console.WriteLine("Simulating 10 batches with random amount of messages per batch.The first batch will disconnect us from the server and the rest should fail as well.");
+            Console.WriteLine("Simulating 10 batches with random amount of messages per batch. The first batch will disconnect us from the server and the rest should fail as well.");
             for (int i = 0; i < 10; i++)
             {
                 randomFailureBatches.Add(Task.Run(async () =>
@@ -231,12 +270,13 @@ namespace MessageStream.Sockets.Sandbox.Client
                     {
                         int thisId = Interlocked.Increment(ref messageId);
                         Interlocked.Increment(ref expectedSuccess);
-                        var result = await clientSandbox.ClientStream.WriteRetryableRequestAsync<SimpleMessage>(new SimpleMessage
+                        var result = await clientSandbox.ClientStream.WriteRequestAsync<SimpleMessage, SimpleMessage>(new SimpleMessage
                         {
-                            Id = thisId,
+                            Id = Interlocked.Increment(ref globalMessageId),
                             Value = random.Next(100),
-                            Disconnect = thisId == 1
-                        }, ShouldRetryMessage, msg => msg.Id == thisId, TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+                            Disconnect = thisId == 1,
+                            Dummy = Enumerable.Range(0, 200).Select(b => (byte)b).ToArray()
+                        }, ShouldRetryMessage, RequestTimeout).ConfigureAwait(false);
                         return result;
                     });
                     return await Task.WhenAll(msgs).ConfigureAwait(false);
@@ -250,15 +290,16 @@ namespace MessageStream.Sockets.Sandbox.Client
             if (failedCount > 0)
             {
                 Console.WriteLine($"Should have received 0 failed messages but received {failedCount}");
-                Console.ReadLine();
-                Debugger.Break();
+              //  Console.ReadLine();
+                //Debugger.Break();
             }
             if (successCount != expectedSuccess)
             {
                 Console.WriteLine($"Should have received {expectedSuccess} success messages but received {successCount}");
-                Console.ReadLine();
-                Debugger.Break();
+                //Console.ReadLine();
+                // Debugger.Break();
             }
+            Console.WriteLine($"DC test success. Received {failedCount} fails, {successCount} success.");
         }
 
         private static async Task RunBatchWithClientDisconnectAsync(SocketClientSandbox clientSandbox, Random random)
@@ -282,12 +323,13 @@ namespace MessageStream.Sockets.Sandbox.Client
                             var ignored = clientSandbox.ClientStream.CloseAsync();
                         }
 
-                        var result = await clientSandbox.ClientStream.WriteRetryableRequestAsync<SimpleMessage>(new SimpleMessage
+                        var result = await clientSandbox.ClientStream.WriteRequestAsync<SimpleMessage, SimpleMessage>(new SimpleMessage
                         {
-                            Id = thisId,
+                            Id = Interlocked.Increment(ref globalMessageId),
                             Value = random.Next(100),
-                            Disconnect = thisId == 1
-                        }, ShouldRetryMessage, msg => msg.Id == thisId, TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                            Disconnect = thisId == 1,
+                            Dummy = Enumerable.Range(0, 200).Select(b => (byte) b).ToArray()
+                        }, ShouldRetryMessage, RequestTimeout).ConfigureAwait(false);
 
                         return !result.Error && !result.Result.Error && !result.IsCompleted ? 1 : 0;
                     });
@@ -301,12 +343,12 @@ namespace MessageStream.Sockets.Sandbox.Client
             if (failedCount == 0)
             {
                 Console.WriteLine($"Should have received more than one failure. Received {failedCount}");
-                Console.ReadLine();
-                Debugger.Break();
+              //  Console.ReadLine();
+             //   Debugger.Break();
             }
             else
             {
-                Console.WriteLine($"Success.");
+                Console.WriteLine($"Success. Received {failedCount} fails, {messageId - failedCount} success.");
             }
         }
 

@@ -71,7 +71,7 @@ namespace MessageStream.Sockets.Sandbox
             {
                 stopwatch.Start();
             }
-            if (messageId % 100 == 0)
+            if (messageId % 50000 == 0)
             {
                 Logger.Info($"Messages received: {messagesReceived}. Messages/s: {messagesReceived / stopwatch.Elapsed.TotalSeconds}");
             }
@@ -80,11 +80,6 @@ namespace MessageStream.Sockets.Sandbox
             if (message.Disconnect)
             {
                 await connection.DisconnectAsync().ConfigureAwait(false);
-            }
-
-            if (message.Value == 123123)
-            {
-                Environment.Exit(0);
             }
 
             if (DebugReceived)

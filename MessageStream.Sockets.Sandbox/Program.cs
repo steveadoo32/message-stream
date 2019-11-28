@@ -27,7 +27,6 @@ namespace MessageStream.Sockets.Sandbox
             const int port = 4353;
 
             var serverSandbox = new SocketServerSandbox(port);
-
             Task.Run(async () =>
             {
                 await serverSandbox.StartAsync().ConfigureAwait(false);
@@ -35,6 +34,8 @@ namespace MessageStream.Sockets.Sandbox
 
             Console.WriteLine("Server started. Press enter to quit.");
             Console.ReadLine();
+
+            Console.WriteLine("Quitting server.");
 
             Task.Run(async () =>
             {
