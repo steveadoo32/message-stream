@@ -73,10 +73,8 @@ namespace MessageStream.Message
                 //var map = deserializerType.GetInterfaceMap(interfaceType);
                 //var interfaceMethod = interfaceType.GetMethod(deserializeBodyMethodName);
 
-                deserializerType = typeof(IMessageBodyDeserializer<,,>).MakeGenericType(typeof(TIdentifier), typeof(TState), realMessageType);
-                deserializeMethod = deserializerType.GetMethod(deserializeBodyMethodName);
+                deserializeMethod = interfaceType.GetMethod(deserializeBodyMethodName);
 
-                bool same = deserializerType == interfaceType;
                 //deserializerType = map.InterfaceType;
                 //deserializeMethod = map.TargetMethods[Array.IndexOf(map.InterfaceMethods, interfaceMethod)];
             }

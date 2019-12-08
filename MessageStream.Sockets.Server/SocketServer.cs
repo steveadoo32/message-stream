@@ -76,7 +76,7 @@ namespace MessageStream.Sockets.Server
             HandleConnectionMessageAsync handleMessageDelegate,
             HandleConnectionDisconnectionAsync handleConnectionDisconnectionDelegate,
             HandleConnectionKeepAliveAsync handleKeepAliveDelegate,
-            EventMessageStreamOptions clientMessageStreamOptions
+            EventMessageStreamOptions clientMessageStreamOptions = null
         )
         {
             this.deserializer = deserializer;

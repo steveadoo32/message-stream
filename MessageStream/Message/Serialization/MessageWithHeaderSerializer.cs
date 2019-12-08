@@ -115,7 +115,7 @@ namespace MessageStream.Message
             return combinedBuffer;
         }
 
-        private IMessageBodySerializer<TIdentifier, T> GetSerializer(T message)
+        protected IMessageBodySerializer<TIdentifier, T> GetSerializer(T message)
         {
             var identifier = GetIdentifier(message);
             return serializers[identifier];
