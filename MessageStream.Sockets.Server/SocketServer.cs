@@ -7,6 +7,7 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Linq;
+using MessageStream.DuplexMessageStream;
 
 namespace MessageStream.Sockets.Server
 {
@@ -206,22 +207,20 @@ namespace MessageStream.Sockets.Server
 
                     // use Math.abs to fix overflows if they ever happen.
                     int connectionId = Math.Abs(Interlocked.Increment(ref connectionIdCounter));
-                    var connection = new Connection(connectionId, socket);
+                    var connection = new Connection(connectionId, socket, this);
 
                     Logger.Info($"Connection accepted {{ connectionId={connectionId} }}.");
 
                     // We have a socket, setup the message stream
-                    var messageStream = new ClientMessageStream<TMessage>(
-                        socket,
+                    var messageStream = new EventMessageStream<TMessage>(
                         deserializer,
                         serializer,
-                        rpcKeyResolver,
+                        new SocketDuplexMessageStream(cancellationToken => new ValueTask<Socket>(socket)),
                         msg => HandleMessagAsync(connection, msg),
-                        (ex, expected) => HandleConnectionDisconnectAsync(connection, ex, expected),
                         () => HandleKeepAliveAsync(connection),
-                        2,
-                        true,
-                        keepAliveTimeSpan
+                        (ex) => HandleConnectionDisconnectAsync(connection, ex, false),
+                        null,
+                        rpcKeyResolver
                     );
 
                     connection.State = connectionStateProvider(connection);
@@ -295,10 +294,11 @@ namespace MessageStream.Sockets.Server
         public class Connection
         {
 
-            public Connection(int id, Socket socket)
+            public Connection(int id, Socket socket, SocketServer<TConnectionState, TMessage> socketServer)
             {
                 Id = id;
                 Socket = socket;
+                SocketServer = socketServer;
             }
 
             public int Id { get; }
@@ -309,12 +309,24 @@ namespace MessageStream.Sockets.Server
 
             internal Socket Socket { get; }
 
-            internal ClientMessageStream<TMessage> MessageStream { get; set; }
+            internal SocketServer<TConnectionState, TMessage> SocketServer { get; }
+
+            internal EventMessageStream<TMessage> MessageStream { get; set; }
 
             public async Task DisconnectAsync()
             {
                 GracefulDisconnect = true;
-                await MessageStream.CloseAsync().ConfigureAwait(false);
+
+                try
+                {
+                    await MessageStream.CloseAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error(ex, "Error closing connection message stream.");
+                }
+
+                await SocketServer.HandleConnectionDisconnectAsync(this, null, true).ConfigureAwait(false);
             }
 
             /// <summary>

@@ -1,3 +1,4 @@
+using MessageStream.DuplexMessageStream;
 using MessageStream.IO;
 using MessageStream.Message;
 using System;
@@ -24,15 +25,14 @@ namespace MessageStream.Tests.Structs.StagedBody
             var writeStream = new MemoryStream();
 
             var messageStream = new MessageStream<TestMessage>(
-                    new MessageStreamReader(readStream),
                     new StagedBodyMessageDeserializer(
                         new MessageProvider<int, TestMessage>(),
                         new TestMessageDeserializer()
                     ),
-                    new MessageStreamWriter(writeStream),
                     new StagedBodyMessageSerializer(
                         new TestMessageSerializer()
-                    )
+                    ),
+                    new StreamDuplexMessageStream(readStream, writeStream).MakeWriteOnly()
                 );
 
             await messageStream.OpenAsync().ConfigureAwait(false);
@@ -50,9 +50,20 @@ namespace MessageStream.Tests.Structs.StagedBody
             await messageStream.CloseAsync().ConfigureAwait(false);
 
             // Reset the streams position so we can read in the messages
-            writeStream.Position = 0;
-            writeStream.CopyTo(readStream);
+            readStream = new MemoryStream(writeStream.ToArray());
             readStream.Position = 0;
+            writeStream = new MemoryStream();
+
+            messageStream = new MessageStream<TestMessage>(
+                    new StagedBodyMessageDeserializer(
+                        new MessageProvider<int, TestMessage>(),
+                        new TestMessageDeserializer()
+                    ),
+                    new StagedBodyMessageSerializer(
+                        new TestMessageSerializer()
+                    ),
+                    new StreamDuplexMessageStream(readStream, writeStream).MakeReadOnly()
+                );
 
             await messageStream.OpenAsync().ConfigureAwait(false);
 

@@ -1,3 +1,4 @@
+using MessageStream.DuplexMessageStream;
 using MessageStream.IO;
 using System.IO;
 using System.Threading.Tasks;
@@ -15,10 +16,9 @@ namespace MessageStream.Tests.Simple
             var writeStream = new MemoryStream();
 
             var messageStream = new MessageStream<SimpleMessage>(
-                    new MessageStreamReader(readStream),
                     new SimpleMessageDeserializer(),
-                    new MessageStreamWriter(writeStream),
-                    new SimpleMessageSerializer()
+                    new SimpleMessageSerializer(),
+                    new StreamDuplexMessageStream(readStream, writeStream)
                 );
 
             await messageStream.OpenAsync().ConfigureAwait(false);
@@ -38,9 +38,15 @@ namespace MessageStream.Tests.Simple
             await messageStream.CloseAsync().ConfigureAwait(false);
 
             // Reset the streams position so we can read in the messages
-            writeStream.Position = 0;
-            writeStream.CopyTo(readStream);
+            readStream = new MemoryStream(writeStream.ToArray());
             readStream.Position = 0;
+            writeStream = new MemoryStream();
+
+            messageStream = new MessageStream<SimpleMessage>(
+                    new SimpleMessageDeserializer(),
+                    new SimpleMessageSerializer(),
+                    new StreamDuplexMessageStream(readStream, writeStream)
+                );
 
             await messageStream.OpenAsync().ConfigureAwait(false);
 
@@ -71,10 +77,9 @@ namespace MessageStream.Tests.Simple
             var writeStream = new MemoryStream();
 
             var messageStream = new MessageStream<object>(
-                    new MessageStreamReader(readStream),
                     new ProtoBuf.ProtoBufMessageDeserializer(),
-                    new MessageStreamWriter(writeStream),
-                    new ProtoBuf.ProtoBufMessageSerializer()
+                    new ProtoBuf.ProtoBufMessageSerializer(),
+                    new StreamDuplexMessageStream(readStream, writeStream)
                 );
 
             await messageStream.OpenAsync().ConfigureAwait(false);
@@ -94,9 +99,15 @@ namespace MessageStream.Tests.Simple
             await messageStream.CloseAsync().ConfigureAwait(false);
 
             // Reset the streams position so we can read in the messages
-            writeStream.Position = 0;
-            writeStream.CopyTo(readStream);
+            readStream = new MemoryStream(writeStream.ToArray());
             readStream.Position = 0;
+            writeStream = new MemoryStream();
+
+            messageStream = new MessageStream<object>(
+                    new ProtoBuf.ProtoBufMessageDeserializer(),
+                    new ProtoBuf.ProtoBufMessageSerializer(),
+                    new StreamDuplexMessageStream(readStream, writeStream)
+                );
 
             await messageStream.OpenAsync().ConfigureAwait(false);
 

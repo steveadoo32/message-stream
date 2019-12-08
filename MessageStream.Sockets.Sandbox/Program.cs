@@ -24,12 +24,19 @@ namespace MessageStream.Sockets.Sandbox
 
             NLog.LogManager.Configuration = config;
 
-            const int port = 4353;
+            const int port = 9031;
 
             var serverSandbox = new SocketServerSandbox(port);
             Task.Run(async () =>
             {
-                await serverSandbox.StartAsync().ConfigureAwait(false);
+                try
+                {
+                    await serverSandbox.StartAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex);
+                }
             });
 
             Console.WriteLine("Server started. Press enter to quit.");

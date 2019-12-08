@@ -1,4 +1,5 @@
 ﻿using MessageStream.Benchmark.StagedBody;
+using MessageStream.DuplexMessageStream;
 using MessageStream.IO;
 using MessageStream.Message;
 using System;
@@ -24,20 +25,20 @@ namespace MessageStream.Benchmark
             var messageProvider = new MessageProvider<int, IStagedBodyMessage>();
 
             var readStream = await GetReadStreamAsync(messageCount).ConfigureAwait(false);
-            var writeStream = new MemoryStream((int) readStream.Length);
+            var writeStream = new MemoryStream((int)readStream.Length);
 
             var messageStream = new ConcurrentMessageStream<IStagedBodyMessage>(
-                    new MessageStreamReader(readStream),
                     new StagedBodyMessageDeserializer(
                         messageProvider,
                         new TestMessageDeserializer(),
                         new TestMessage2Deserializer()
                     ),
-                    new MessageStreamWriter(writeStream),
                     new StagedBodyMessageSerializer(
                         new TestMessageSerializer(),
                         new TestMessage2Serializer()
-                    )
+                    ),
+                    new StreamDuplexMessageStream(readStream, writeStream),
+                    exception => new ValueTask()
                 );
 
             Console.WriteLine();
@@ -52,7 +53,7 @@ namespace MessageStream.Benchmark
                 await messageStream.OpenAsync().ConfigureAwait(false);
 
                 stopwatch.Restart();
-                
+
                 await Task.WhenAll(Enumerable.Range(0, parallellism).Select(async _ =>
                 {
                     while (true)
@@ -89,17 +90,17 @@ namespace MessageStream.Benchmark
         {
             var memoryStream = new MemoryStream();
             var messageStream = new MessageStream<IStagedBodyMessage>(
-                           new MessageStreamReader(new MemoryStream()),
-                           new StagedBodyMessageDeserializer(
-                               new MessageProvider<int, IStagedBodyMessage>(),
-                               new TestMessageDeserializer()
-                           ),
-                           new MessageStreamWriter(memoryStream),
-                           new StagedBodyMessageSerializer(
-                               new TestMessageSerializer(),
-                               new TestMessage2Serializer()
-                           )
-                       );
+                    new StagedBodyMessageDeserializer(
+                        new MessageProvider<int, IStagedBodyMessage>(),
+                        new TestMessageDeserializer(),
+                        new TestMessage2Deserializer()
+                    ),
+                    new StagedBodyMessageSerializer(
+                        new TestMessageSerializer(),
+                        new TestMessage2Serializer()
+                    ),
+                    new StreamDuplexMessageStream(new MemoryStream(), memoryStream)
+            );
             var stopwatch = new Stopwatch();
 
             await messageStream.OpenAsync().ConfigureAwait(false);
@@ -120,7 +121,7 @@ namespace MessageStream.Benchmark
                 {
                     await messageStream.WriteAsync(new TestMessage2
                     {
-                        Value = (uint) random.Next(int.MaxValue)
+                        Value = (uint)random.Next(int.MaxValue)
                     }).ConfigureAwait(false);
                 }
             }

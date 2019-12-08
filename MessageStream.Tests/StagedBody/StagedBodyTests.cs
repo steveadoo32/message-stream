@@ -1,3 +1,4 @@
+using MessageStream.DuplexMessageStream;
 using MessageStream.IO;
 using MessageStream.Message;
 using System;
@@ -19,15 +20,14 @@ namespace MessageStream.Tests.StagedBody
             var writeStream = new MemoryStream();
 
             var messageStream = new MessageStream<IStagedBodyMessage>(
-                    new MessageStreamReader(readStream),
                     new StagedBodyMessageDeserializer(
                         new MessageProvider<int, IStagedBodyMessage>(),
                         new TestMessageDeserializer()
                     ),
-                    new MessageStreamWriter(writeStream),
                     new StagedBodyMessageSerializer(
                         new TestMessageSerializer()
-                    )
+                    ),
+                    new StreamDuplexMessageStream(readStream, writeStream)
                 );
 
             await messageStream.OpenAsync().ConfigureAwait(false);
@@ -45,9 +45,21 @@ namespace MessageStream.Tests.StagedBody
             await messageStream.CloseAsync().ConfigureAwait(false);
 
             // Reset the streams position so we can read in the messages
-            writeStream.Position = 0;
-            writeStream.CopyTo(readStream);
+            readStream = new MemoryStream(writeStream.ToArray());
             readStream.Position = 0;
+            writeStream = new MemoryStream();
+
+            messageStream = new ConcurrentMessageStream<IStagedBodyMessage>(
+                    new StagedBodyMessageDeserializer(
+                        new MessageProvider<int, IStagedBodyMessage>(),
+                        new TestMessageDeserializer()
+                    ),
+                    new StagedBodyMessageSerializer(
+                        new TestMessageSerializer()
+                    ),
+                    new StreamDuplexMessageStream(readStream, writeStream),
+                    (exception) => new ValueTask()
+                );
 
             await messageStream.OpenAsync().ConfigureAwait(false);
 
@@ -78,16 +90,15 @@ namespace MessageStream.Tests.StagedBody
             var writeStream = new MemoryStream();
 
             var messageStream = new ConcurrentMessageStream<IStagedBodyMessage>(
-                    new MessageStreamReader(readStream),
                     new StagedBodyMessageDeserializer(
                         new MessageProvider<int, IStagedBodyMessage>(),
                         new TestMessageDeserializer()
                     ),
-                    new MessageStreamWriter(writeStream),
                     new StagedBodyMessageSerializer(
                         new TestMessageSerializer()
                     ),
-                    readerFlushTimeout: TimeSpan.FromSeconds(1)
+                    new StreamDuplexMessageStream(writeStream).MakeWriteOnly(),
+                    (exception) => new ValueTask()
                 );
 
             await messageStream.OpenAsync().ConfigureAwait(false);
@@ -101,7 +112,7 @@ namespace MessageStream.Tests.StagedBody
             {
                 for (int i = 0; i < blockSize; i++)
                 {
-                    await messageStream.WriteAsync(new TestMessage
+                    await messageStream.WriteAndWaitAsync(new TestMessage
                     {
                         Value = (short) random.Next(10000)
                     }).ConfigureAwait(false);
@@ -111,9 +122,21 @@ namespace MessageStream.Tests.StagedBody
             await messageStream.CloseAsync().ConfigureAwait(false);
 
             // Reset the streams position so we can read in the messages
-            writeStream.Position = 0;
-            writeStream.CopyTo(readStream);
+            readStream = new MemoryStream(writeStream.ToArray());
             readStream.Position = 0;
+            writeStream = new MemoryStream();
+
+            messageStream = new ConcurrentMessageStream<IStagedBodyMessage>(
+                    new StagedBodyMessageDeserializer(
+                        new MessageProvider<int, IStagedBodyMessage>(),
+                        new TestMessageDeserializer()
+                    ),
+                    new StagedBodyMessageSerializer(
+                        new TestMessageSerializer()
+                    ),
+                    new StreamDuplexMessageStream(readStream).MakeReadOnly(),
+                    (exception) => new ValueTask()
+                );
 
             await messageStream.OpenAsync().ConfigureAwait(false);
 
@@ -139,7 +162,14 @@ namespace MessageStream.Tests.StagedBody
             Assert.Equal(messageCount, actualMessageCount);
 
             // Close
-            await messageStream.CloseAsync().ConfigureAwait(false);
+            try
+            {
+                await messageStream.CloseAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // the stream was closed because EOF
+            }
 
         }
 
@@ -147,19 +177,17 @@ namespace MessageStream.Tests.StagedBody
         public async Task TestMultiThreadedStagedMockStream()
         {
             var readStream = new MemoryStream();
-            var writeStream = new MemoryStream();
 
             var messageStream = new ConcurrentMessageStream<IStagedBodyMessage>(
-                    new MessageStreamReader(readStream),
                     new StagedBodyMessageDeserializer(
                         new MessageProvider<int, IStagedBodyMessage>(),
                         new TestMessageDeserializer()
                     ),
-                    new MessageStreamWriter(writeStream),
                     new StagedBodyMessageSerializer(
                         new TestMessageSerializer()
                     ),
-                    readerFlushTimeout: TimeSpan.FromSeconds(1)
+                    new StreamDuplexMessageStream(readStream).MakeWriteOnly(), // we use writeonly because we dont want to hit EOF
+                    (exception) => new ValueTask()
                 );
             
             await messageStream.OpenAsync().ConfigureAwait(false);
@@ -172,22 +200,15 @@ namespace MessageStream.Tests.StagedBody
                 {
                     Header = new StagedBodyMessageHeader(),
                     Value = (short) i
-                });
+                }, i == messageCount - 1);
             }
 
             await Task.WhenAll(Enumerable.Range(0, 5).Select(async _ =>
             {
-                while (true)
+                var result = await messageStream.ReadAsync().ConfigureAwait(false);
+                if (result.ReadResult)
                 {
-                    var result = await messageStream.ReadAsync().ConfigureAwait(false);
-                    if (result.ReadResult)
-                    {
-                        Interlocked.Increment(ref actualMessageCount);
-                    }
-                    if (result.IsCompleted)
-                    {
-                        break;
-                    }
+                    var count = Interlocked.Increment(ref actualMessageCount);
                 }
             })).ConfigureAwait(false);
 

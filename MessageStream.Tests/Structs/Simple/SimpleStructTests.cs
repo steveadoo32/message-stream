@@ -1,3 +1,4 @@
+using MessageStream.DuplexMessageStream;
 using MessageStream.IO;
 using System.IO;
 using System.Threading.Tasks;
@@ -15,10 +16,9 @@ namespace MessageStream.Tests.Structs.Simple
             var writeStream = new MemoryStream();
 
             var messageStream = new MessageStream<StructMessage>(
-                    new MessageStreamReader(readStream),
                     new StructMessageDeserializer(),
-                    new MessageStreamWriter(writeStream),
-                    new StructMessageSerializer()
+                    new StructMessageSerializer(),
+                    new StreamDuplexMessageStream(readStream, writeStream)
                 );
 
             await messageStream.OpenAsync().ConfigureAwait(false);
@@ -38,9 +38,15 @@ namespace MessageStream.Tests.Structs.Simple
             await messageStream.CloseAsync().ConfigureAwait(false);
 
             // Reset the streams position so we can read in the messages
-            writeStream.Position = 0;
-            writeStream.CopyTo(readStream);
+            readStream = new MemoryStream(writeStream.ToArray());
             readStream.Position = 0;
+            writeStream = new MemoryStream();
+
+            messageStream = new MessageStream<StructMessage>(
+                    new StructMessageDeserializer(),
+                    new StructMessageSerializer(),
+                    new StreamDuplexMessageStream(readStream, writeStream)
+                );
 
             await messageStream.OpenAsync().ConfigureAwait(false);
 

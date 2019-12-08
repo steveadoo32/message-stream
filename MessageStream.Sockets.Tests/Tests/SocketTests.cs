@@ -62,7 +62,7 @@ namespace MessageStream.Sockets.Tests.Tests
                 return new ValueTask<bool>();
             }
 
-            ValueTask HandleClientDisconnection(Exception ex, bool expected)
+            ValueTask HandleClientDisconnection(Exception ex)
             {
                 Logger.Info($"Client disconnected");
                 return new ValueTask();
@@ -80,14 +80,13 @@ namespace MessageStream.Sockets.Tests.Tests
                 Port = 5463
             };
 
-            var clientStream = new EventSocketMessageStream<object>(
-                config,
+            var clientStream = new EventMessageStream<object>(
                 Deserializer,
                 Serializer,
-                null,
+                new SocketDuplexMessageStreamWrapper(config),
                 HandleClientMessage,
-                HandleClientDisconnection,
-                HandleClientKeepAlive);
+                HandleClientKeepAlive,
+                HandleClientDisconnection);
 
             await clientStream.OpenAsync().ConfigureAwait(false);
 

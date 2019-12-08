@@ -1,4 +1,5 @@
 ﻿using MessageStream.Benchmark.StagedBody;
+using MessageStream.DuplexMessageStream;
 using MessageStream.IO;
 using MessageStream.Message;
 using System;
@@ -25,16 +26,15 @@ namespace MessageStream.Benchmark
             var writeStream = new MemoryStream((int) readStream.Length);
 
             var messageStream = new MessageStream<IStagedBodyMessage>(
-                    new MessageStreamReader(readStream),
                     new StagedBodyMessageDeserializer(
                         messageProvider,
                         new TestMessageDeserializer()
                     ),
-                    new MessageStreamWriter(writeStream),
                     new StagedBodyMessageSerializer(
                         new TestMessageSerializer(),
                         new TestMessage2Serializer()
-                    )
+                    ),
+                    new StreamDuplexMessageStream(readStream, writeStream)
                 );
 
             Console.WriteLine();
@@ -91,16 +91,15 @@ namespace MessageStream.Benchmark
         {
             var memoryStream = new MemoryStream();
             var messageStream = new MessageStream<IStagedBodyMessage>(
-                           new MessageStreamReader(new MemoryStream()),
                            new StagedBodyMessageDeserializer(
                                new MessageProvider<int, IStagedBodyMessage>(),
                                new TestMessageDeserializer()
                            ),
-                           new MessageStreamWriter(memoryStream),
                            new StagedBodyMessageSerializer(
                                new TestMessageSerializer(),
                                new TestMessage2Serializer()
-                           )
+                           ),
+                           new StreamDuplexMessageStream(new MemoryStream(), memoryStream)
                        );
             var stopwatch = new Stopwatch();
 

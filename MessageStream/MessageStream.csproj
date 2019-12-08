@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netcoreapp2.2</TargetFramework>
+    <TargetFramework>netcoreapp3.0</TargetFramework>
     <PackageId>message-stream</PackageId>
     <Authors>Stephen Moyer</Authors>
     <Company>MMSPartners</Company>
@@ -31,8 +31,8 @@
 
   <ItemGroup>
     <PackageReference Include="NLog" Version="4.5.10" />
-    <PackageReference Include="System.IO.Pipelines" Version="4.5.2" />
-    <PackageReference Include="System.Threading.Channels" Version="4.5.0" />
+    <PackageReference Include="Pipelines.Sockets.Unofficial" Version="2.1.0" />
+    <PackageReference Include="System.Threading.Channels" Version="4.7.0" />
   </ItemGroup>
 
 </Project>

@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using MessageStream.IO;
 using MessageStream.Message;
 
 namespace MessageStream
@@ -14,7 +13,7 @@ namespace MessageStream
 
         private static NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
-        public delegate EventMessageStream<T> GetStream(EventMessageStream<T>.HandleDisconnectionAsync disconnectionEvent);
+        public delegate EventMessageStream<T> GetStream(UnexpectedCloseDelegateAsync unexpectedCloseDelegate);
 
         public delegate ValueTask StreamOpenedAsync(EventMessageStream<T> stream);
 
@@ -26,10 +25,10 @@ namespace MessageStream
         private readonly GetStream getStreamDelegate;
         private readonly StreamOpenedAsync openDelegate;
         private readonly StreamClosedAsync closeDelegate;
-        private readonly EventMessageStream<T>.HandleDisconnectionAsync disconnectionDelegate;
+        private readonly UnexpectedCloseDelegateAsync unexpectedCloseDelegate;
 
         private int numReconnectAttempts;
-        private TaskCompletionSource<bool> streamRecoverTimeoutSignal;
+        // private TaskCompletionSource<bool> streamRecoverTimeoutSignal;
         private TaskCompletionSource<EventMessageStream<T>> streamRecoveredSignal;
 
         public EventMessageStream<T> ActiveStream { get; private set; }
@@ -41,7 +40,7 @@ namespace MessageStream
             GetStream getStreamDelegate,
             StreamOpenedAsync openDelegate,
             StreamClosedAsync closeDelegate,
-            EventMessageStream<T>.HandleDisconnectionAsync disconnectionDelegate)
+            UnexpectedCloseDelegateAsync unexpectedCloseDelegate)
         {
             this.oldStreamCloseTimeout = oldStreamCloseTimeout;
             this.reconnectBackoff = reconnectBackoff;
@@ -49,36 +48,27 @@ namespace MessageStream
             this.getStreamDelegate = getStreamDelegate;
             this.openDelegate = openDelegate;
             this.closeDelegate = closeDelegate;
-            this.disconnectionDelegate = disconnectionDelegate;
+            this.unexpectedCloseDelegate = unexpectedCloseDelegate;
         }
 
         public async Task OpenAsync()
         {
             streamRecoveredSignal = new TaskCompletionSource<EventMessageStream<T>>(TaskCreationOptions.RunContinuationsAsynchronously);
-            streamRecoverTimeoutSignal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            // streamRecoverTimeoutSignal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             EventMessageStream<T> newStream = null;
-            newStream = ActiveStream = getStreamDelegate((innerEx, innerExpected) => HandleDisconnectionAsync(newStream, innerEx, innerExpected));
+            newStream = ActiveStream = getStreamDelegate((innerEx) => HandleUnexpectedCloseAsync(newStream, innerEx));
             await ActiveStream.OpenAsync().ConfigureAwait(false);
             await openDelegate(ActiveStream).ConfigureAwait(false);
         }
         
-        public async Task<MessageWriteRequestResult<TReply>> WriteRequestAsync<TRequest, TReply>(TRequest request, Func<T, MessageWriteRequestResult<TReply>, Exception, bool> shouldRetry, TimeSpan timeout = default, bool flush = true) where TRequest : T, IRequest where TReply : T, IResponse
+        public async Task<MessageWriteRequestResult<TReply>> WriteRequestAsync<TRequest, TReply>(TRequest request, Func<T, MessageWriteRequestResult<TReply>, bool> shouldRetry, TimeSpan timeout = default, bool flush = true) where TRequest : T, IRequest where TReply : T, IResponse
         {
             var stream = ActiveStream;
-            var recoveredTimeoutSignal = streamRecoverTimeoutSignal;
+            // var recoveredTimeoutSignal = streamRecoverTimeoutSignal;
             var recoveredSignal = streamRecoveredSignal;
-            MessageWriteRequestResult<TReply> result = default;
-            Exception outerEx = null;
-            try
-            {
-                result = await stream.WriteRequestAsync<TRequest, TReply>(request, timeout, flush).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                outerEx = ex;
-            }
+            MessageWriteRequestResult<TReply> result = await stream.WriteRequestAsync<TRequest, TReply>(request, timeout, flush).ConfigureAwait(false);
 
-            if (shouldRetry(request, result, outerEx))
+            if (shouldRetry(request, result))
             {
                 var recoveredTask = recoveredSignal.Task;
 
@@ -88,15 +78,11 @@ namespace MessageStream
                     return result;
                 }
 
-                if (stream.ReadCompleted || stream.WriteCompleted)
+                if (!stream.Open || (result.IsCompleted && !result.Result.ReadResult)) // not sure about this check
                 {
-                    await Task.WhenAny(recoveredTimeoutSignal.Task, recoveredTask).ConfigureAwait(false);
+                    await Task.WhenAny(Task.Delay(reconnectBackoff * numReconnectAttempts), recoveredTask).ConfigureAwait(false);
                     if (!recoveredTask.IsCompleted || recoveredTask.Result == null)
                     {
-                        if (outerEx != null)
-                        {
-                            throw outerEx;
-                        }
                         return result;
                     }
                     else
@@ -112,24 +98,11 @@ namespace MessageStream
             return result;
         }
 
-        private ValueTask HandleDisconnectionAsync(EventMessageStream<T> oldStream, Exception ex, bool expected)
+        private ValueTask HandleUnexpectedCloseAsync(EventMessageStream<T> oldStream, Exception ex)
         {
             // we have to run this off thread because we will block the old streams close method.
             Task.Run(async () =>
             {
-                // if we expected an error dont do anything
-                if (expected)
-                {
-                    await disconnectionDelegate(ex, expected).ConfigureAwait(false);
-                    return;
-                }
-
-                var cts = new CancellationTokenSource((int) (maxReconnectAttempts * reconnectBackoff.TotalMilliseconds));
-                var ctsRegistration = cts.Token.Register(() =>
-                {
-                    streamRecoverTimeoutSignal.TrySetResult(false);
-                });
-
                 Logger.Error(ex, "MessageStream errored. Attempting to recover...");
 
                 try
@@ -151,7 +124,7 @@ namespace MessageStream
                         await Task.Delay((int)(numReconnectAttempts * reconnectBackoff.TotalMilliseconds)).ConfigureAwait(false);
                         numReconnectAttempts++;
                         // we dont want to handle the disconnects until we've successfully reopened
-                        newStream = getStreamDelegate((innerEx, innerExpected) => success ? HandleDisconnectionAsync(newStream, innerEx, innerExpected) : new ValueTask());
+                        newStream = getStreamDelegate((innerEx) => success ? HandleUnexpectedCloseAsync(newStream, innerEx) : new ValueTask());
                         await newStream.OpenAsync().ConfigureAwait(false);
                         await openDelegate(newStream).ConfigureAwait(false);
                         // Success
@@ -169,12 +142,11 @@ namespace MessageStream
                 if (!success)
                 {
                     streamRecoveredSignal.TrySetResult(null);
-                    streamRecoverTimeoutSignal.TrySetResult(true);
                     try
                     {
                         await closeDelegate(newStream).ConfigureAwait(false);
                         await Task.WhenAny(Task.Delay(oldStreamCloseTimeout), newStream.CloseAsync()).ConfigureAwait(false);
-                        await disconnectionDelegate(ex, false).ConfigureAwait(false);
+                        await unexpectedCloseDelegate(ex).ConfigureAwait(false);
                         Logger.Warn($"Closed message stream after {numReconnectAttempts} reconnection attempts.");
                     }
                     catch (Exception closeEx)
@@ -186,14 +158,9 @@ namespace MessageStream
                 {
                     ActiveStream = newStream;
                     streamRecoveredSignal.TrySetResult(newStream);
-                    streamRecoverTimeoutSignal.TrySetResult(false);
                     streamRecoveredSignal = new TaskCompletionSource<EventMessageStream<T>>(TaskCreationOptions.RunContinuationsAsynchronously);
-                    streamRecoverTimeoutSignal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                     Logger.Info("MessageStream recovered.");
                 }
-
-                ctsRegistration.Dispose();
-                cts.Dispose();
             });
             return new ValueTask();
         }
@@ -201,7 +168,6 @@ namespace MessageStream
         public async Task CloseAsync()
         {
             streamRecoveredSignal.TrySetResult(null);
-            streamRecoverTimeoutSignal.TrySetResult(false);
             await closeDelegate(ActiveStream).ConfigureAwait(false);
             await ActiveStream.CloseAsync().ConfigureAwait(false);
         }

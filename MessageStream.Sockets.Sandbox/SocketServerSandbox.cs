@@ -101,8 +101,6 @@ namespace MessageStream.Sockets.Sandbox
                 }
             }
 
-            Deserializer.MessageProvider.Return(0, message);
-
             return true;
         }
 

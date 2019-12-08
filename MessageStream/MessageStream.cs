@@ -1,5 +1,4 @@
-﻿using MessageStream.IO;
-using MessageStream.Message;
+﻿using MessageStream.Message;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -22,156 +21,106 @@ namespace MessageStream
 
         private static NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
-        private readonly IReader reader;
-        private readonly IMessageDeserializer<T> deserializer;
-        private readonly IWriter writer;
-        private readonly IMessageSerializer<T> serializer;
+        protected readonly MessageStreamOptions options;
 
-        private readonly PipeOptions readerPipeOptions;
+        private readonly IDuplexMessageStream duplexMessageStream;
+        private CancellationTokenSource closeCts;
 
-        private readonly PipeOptions writerPipeOptions;
-        private readonly TimeSpan writerCloseTimeout;
+        protected IMessageDeserializer<T> Deserializer { get; private set; }
 
-        private Pipe readPipe;
-        private Pipe writePipe;
-
-        private Task<bool> readTask;
-        private Task<bool> writeTask;
-
-        private CancellationTokenSource readCancellationTokenSource;
-        private CancellationTokenSource writeCancellationTokenSource;
-
-        private Exception readException;
-        private Exception writeException;
-
-        private long _bytesRead;
-        private long _bytesWritten;
-        private long _messagesWritten;
-        private long _messagesRead;
+        protected IMessageSerializer<T> Serializer { get; private set; }
 
         public bool Open { get; private set; }
 
-        public bool ReadCompleted { get; private set; }
+        public MessageStreamReadStats ReadStats { get; } = new MessageStreamReadStats();
 
-        public bool WriteCompleted { get; private set; }
+        public MessageStreamWriteStats WriteStats { get; } = new MessageStreamWriteStats();
 
-        public long MessagesWritten => _messagesWritten;
-
-        public long BytesWritten => _bytesWritten;
-
-        public long MessagesRead => _messagesRead;
-
-        public long BytesRead => _bytesRead;
-
-        protected IMessageDeserializer<T> Deserializer => deserializer;
-
-        protected IMessageSerializer<T> Serializer => serializer;
+        public string DuplexStreamStats => duplexMessageStream.StatsString;
 
         /// <summary>
         /// </summary>
         /// <param name="writerCloseTimeout">How long should we wait for the writer to finish writing data before closing</param>
         public MessageStream(
-            IReader reader,
             IMessageDeserializer<T> deserializer,
-            IWriter writer,
             IMessageSerializer<T> serializer,
-            PipeOptions readerPipeOptions = null,
-            PipeOptions writerPipeOptions = null,
-            TimeSpan? writerCloseTimeout = null
+            IDuplexMessageStream duplexMessageStream,
+            MessageStreamOptions options = null
         )
         {
-            this.reader = reader;
-            this.deserializer = deserializer;
-            this.writer = writer;
-            this.serializer = serializer;
-            this.readerPipeOptions = readerPipeOptions ?? new PipeOptions();
-            this.writerPipeOptions = writerPipeOptions ?? new PipeOptions();
-            this.writerCloseTimeout = writerCloseTimeout ?? TimeSpan.FromSeconds(5);
-
+            this.Deserializer = deserializer;
+            this.Serializer = serializer;
+            this.duplexMessageStream = duplexMessageStream;
+            this.options = options ?? new MessageStreamOptions();
         }
 
         #region Open/Close
 
-        public virtual Task OpenAsync()
+        public virtual async Task OpenAsync(CancellationToken cancellationToken = default)
         {
-            _bytesRead = 0;
-            _bytesWritten = 0;
-            _messagesRead = 0;
-            _messagesWritten = 0;
-
             if (Open)
             {
-                throw new Exception("MessageStream is already open");
+                throw new MessageStreamOpenException("MessageStream already open");
             }
 
-            ReadCompleted = false;
-            WriteCompleted = false;
+            Logger.Trace("Opening message stream.");
 
-            readPipe = new Pipe(
-                readerPipeOptions
-            );
-            writePipe = new Pipe(
-                writerPipeOptions
-            );
+            closeCts = new CancellationTokenSource();
 
-            readCancellationTokenSource = new CancellationTokenSource();
-            writeCancellationTokenSource = new CancellationTokenSource();
+            ReadStats.Reset();
+            WriteStats.Reset();
 
-            readTask = ReadLoopAsync();
-            writeTask = WriteLoopAsync();
-
-            // Check eagerly if any of the read/write tasks failed right away and throw their exceptions
-            if (readTask.IsFaulted)
+            try
             {
-                throw readTask.Exception;
+                await duplexMessageStream.OpenAsync(cancellationToken).ConfigureAwait(false);
             }
-
-            if (writeTask.IsFaulted)
+            catch (Exception ex)
             {
-                throw writeTask.Exception;
+                Cleanup();
+                Logger.Error(ex, "Error opening message stream.");
+                throw new MessageStreamOpenException("Error opening duplex message stream", ex);
             }
 
             Open = true;
 
-            return Task.CompletedTask;
+            Logger.Trace("Opened message stream.");
         }
 
         public virtual async Task CloseAsync()
         {
             if (!Open)
             {
-                throw new Exception("MessageStream is not open");
+                throw new MessageStreamCloseException("MessageStream already closed.");
             }
 
-            Open = false;
+            Logger.Info("Closing message stream.");
 
-            readCancellationTokenSource.Cancel();
-            await readTask.ConfigureAwait(false);
-            readCancellationTokenSource.Dispose();
-            readCancellationTokenSource = null;
-            readTask = null;
-
-            writePipe.Writer.Complete();
-            writeCancellationTokenSource.CancelAfter(writerCloseTimeout);
-            await writeTask.ConfigureAwait(false);
-            writeCancellationTokenSource.Dispose();
-            writeCancellationTokenSource = null;
-            writeTask = null;
-
-            readPipe.Reader.Complete();
-            writePipe.Reader.Complete();
+            closeCts.Cancel();
 
             try
             {
-                await CleanupAsync().ConfigureAwait(false);
+                await duplexMessageStream.CloseAsync().ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                // todo log this?
+                Logger.Error(ex, "Error message stream.");
+
+                throw new MessageStreamOpenException("Error closing duplex message stream", ex);
+            }
+            finally
+            {
+                Cleanup();
+                Open = false;
+                Logger.Info("Closed message stream.");
             }
         }
 
-        protected virtual Task CleanupAsync() => Task.CompletedTask;
+        private void Cleanup()
+        {
+            closeCts.Dispose();
+            ReadStats.Reset();
+            WriteStats.Reset();
+        }
 
         #endregion
 
@@ -182,114 +131,158 @@ namespace MessageStream
             DateTime timeReceived = DateTime.UtcNow;
 
             bool partialMessage = false;
-            T message = default;
-            SequencePosition read = default;
-
-            ReadResult result = await readPipe.Reader.ReadAsync().ConfigureAwait(false);
             // Try to read one full message.
-            while (!Decode(result.Buffer, out read, out message))
-            {
-                // This case means we read a partial message, so try to read the rest
-                if (!result.IsCompleted)
-                {
-                    readPipe.Reader.AdvanceTo(read, result.Buffer.End);
-                    result = await readPipe.Reader.ReadAsync().ConfigureAwait(false);
-                }
-                // We didn't have enough data in the buffer, and the reader is closed so we can't read anymore, so mark it as a partial message.
-                else
-                {
-                    partialMessage = true;
-                    break;
-                }
-            }
-            DateTime parsedTimeUtc = DateTime.UtcNow;
-
-            // Let the caller process the incoming buffer
-            if (!partialMessage)
-            {
-                await ProcessIncomingBufferAsync(message, result.Buffer.Slice(result.Buffer.Start, read)).ConfigureAwait(false);
-                Interlocked.Increment(ref _messagesRead);
-            }
-
-            var completed = result.Buffer.Length == 0 || partialMessage;
-            if (!completed)
-            {
-                readPipe.Reader.AdvanceTo(read);
-            }
-            if (!ReadCompleted && completed)
-            {
-                ReadCompleted = completed;
-            }
-
-            DateTime parsedTime = DateTime.UtcNow;
-            return new MessageReadResult<T>
-            {
-                IsCompleted = completed,
-                Error = readException != null,
-                Exception = readException,
-                Result = message,
-                ReadResult = !partialMessage,
-                ReceivedTimeUtc = timeReceived,
-                ParsedTimeUtc = parsedTimeUtc
-            };
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private bool Decode(in ReadOnlySequence<byte> buffer, out SequencePosition read, out T message)
-        {
-            return deserializer.Deserialize(in buffer, out read, out message);
-        }
-
-        public virtual async ValueTask<MessageWriteResult> WriteAsync(T message, bool flush = true)
-        {
-            if (!Open)
-            {
-                return new MessageWriteResult
-                {
-                    IsCompleted = true,
-                    Error = true,
-                    Exception = null
-                };
-            }
-
-            // Serialize
-            var serializedMessage = SerializeMessage(message);
-
             try
             {
-                await ProcessOutgoingBufferAsync(message, serializedMessage).ConfigureAwait(false);
+                T message = default;
+                SequencePosition read = default;
+
+                var closeToken = closeCts?.Token ?? default;
+                ReadResult result = await duplexMessageStream.ReadAsync(closeToken).ConfigureAwait(false);
+                var buffer = result.Buffer;
+                while (!Deserializer.Deserialize(in buffer, out read, out message))
+                {
+                    // This case means we read a partial message, so try to read the rest
+                    if (!result.IsCompleted)
+                    {
+                        duplexMessageStream.AdvanceReaderTo(read, result.Buffer.End);
+                        ReadStats.IncrBytesRead(result.Buffer.Length);
+                        result = await duplexMessageStream.ReadAsync(closeToken).ConfigureAwait(false);
+                        buffer = result.Buffer;
+                    }
+                    // We didn't have enough data in the buffer, and the reader is closed so we can't read anymore, so mark it as a partial message.
+                    else
+                    {
+                        partialMessage = true;
+                        break;
+                    }
+                }
+
+                // Track the time it took to parse
+                DateTime parsedTimeUtc = DateTime.UtcNow;
+                
+                if (!partialMessage)
+                {
+                    // not sure how expensive this is
+                    var slicedBuffer = result.Buffer.Slice(result.Buffer.Start, read);
+
+                    ReadStats.IncMessagesRead();
+                    ReadStats.IncrBytesRead(slicedBuffer.Length);
+
+                    try
+                    {
+                        ReadStats.IncMessagesIncomingBufferProcessing(1);
+                        await ProcessIncomingBufferAsync(message, slicedBuffer).ConfigureAwait(false);
+                        ReadStats.DecMessagesIncomingBufferProcessing(1);
+                    }
+                    catch (Exception ex)
+                    {
+                        ReadStats.DecMessagesIncomingBufferProcessing(1);
+                        Logger.Error(ex, "Error processing incoming message buffer.");
+                    }
+                }
+                
+                if (!partialMessage)
+                {
+
+                    duplexMessageStream.AdvanceReaderTo(read);
+                }
+
+                DateTime parsedTime = DateTime.UtcNow;
+                return new MessageReadResult<T>
+                {
+                    // if the stream is completed, we can still try to read more messages, so we use the partialMessage field to indicate that.
+                    IsCompleted = result.IsCompleted && partialMessage,
+                    Error = false,
+                    Exception = null,
+                    Result = message,
+                    ReadResult = !partialMessage,
+                    ReceivedTimeUtc = timeReceived,
+                    ParsedTimeUtc = parsedTimeUtc
+                };
             }
             catch (Exception ex)
             {
-                Logger.Error(ex, "Error processing outgoing message buffer.");
+                Logger.Error(ex, "Error reading message from duplex message stream.");
+
+                return new MessageReadResult<T>
+                {
+                    IsCompleted = duplexMessageStream.ReadCompleted,
+                    Error = true,
+                    Exception = ex,
+                    Result = default,
+                    ReadResult = !partialMessage,
+                    ReceivedTimeUtc = timeReceived,
+                    ParsedTimeUtc = DateTime.UtcNow
+                };
             }
-
-            // Write the data into the Writer
-            var result = await writePipe.Writer.WriteAsync(serializedMessage).ConfigureAwait(false);
-
-            Interlocked.Increment(ref _messagesWritten);
-
-            if (flush)
+        }
+        
+        public virtual async ValueTask<MessageWriteResult> WriteAsync(T message, bool flush = true)
+        {
+            try
             {
-                await writePipe.Writer.FlushAsync().ConfigureAwait(false);
+                // Serialize
+                var serializedMessage = SerializeMessage(message);
+
+                WriteStats.IncMessagesOutgoingBufferProcessing();
+                try
+                {
+                    await ProcessOutgoingBufferAsync(message, serializedMessage).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error(ex, "Error processing outgoing message buffer.");
+                }
+
+                WriteStats.DecMessagesOutgoingBufferProcessing(1);
+                WriteStats.IncMessagesWriting();
+
+                // Write the data into the Writer
+                var cancellationToken = closeCts?.Token ?? default;
+                var result = await duplexMessageStream.WriteAsync(serializedMessage, cancellationToken).ConfigureAwait(false);
+
+                WriteStats.IncMessagesWritten();
+                WriteStats.IncrBytesWritten(serializedMessage.Length);
+
+                if (flush && !result.IsCompleted)
+                {
+                    result = await FlushAsync().ConfigureAwait(false);
+                }
+
+                WriteStats.DecMessagesWriting(1);
+
+                return new MessageWriteResult
+                {
+                    IsCompleted = result.IsCompleted,
+                    Error = false,
+                    Exception = null
+                };
             }
-
-            if (!WriteCompleted && result.IsCompleted)
+            catch (Exception ex)
             {
-                WriteCompleted = result.IsCompleted;
+                Logger.Error(ex, "Error writing message to duplex message stream.");
+
+                WriteStats.DecMessagesWriting(1);
+
+                return new MessageWriteResult
+                {
+                    IsCompleted = duplexMessageStream.WriteCompleted,
+                    Error = true,
+                    Exception = ex
+                };
             }
-
-            return new MessageWriteResult
-            {
-                IsCompleted = result.IsCompleted,
-                Error = writeException != null,
-                Exception = writeException
-            };
         }
 
-        public ValueTask<FlushResult> FlushAsync()
+        public virtual async ValueTask<FlushResult> FlushAsync()
         {
-            return writePipe.Writer.FlushAsync();
+            var cancellationToken = closeCts?.Token ?? default;
+
+            WriteStats.Flushing = true;
+            var result = await duplexMessageStream.FlushWriterAsync(cancellationToken).ConfigureAwait(false);
+            WriteStats.Flushing = false;
+
+            return result;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -303,21 +296,21 @@ namespace MessageStream
             int size = 0;
 
             // Check if we can set a fixed size. We can write directly to the backing memory if it's fixed
-            if (serializer.TryCalculateMessageSize(message, out size))
+            if (Serializer.TryCalculateMessageSize(message, out size))
             {
-                memory = writePipe.Writer.GetMemory(size);
+                memory = duplexMessageStream.GetWriteMemory(size);
 
                 // We don't need to copy here because we are writing directly to the memory span
-                buffer = serializer.Serialize(message, memory.Span.Slice(0, size), true);
+                buffer = Serializer.Serialize(message, memory.Span.Slice(0, size), true);
             }
             else
             {
                 // We need to write the returned span to the memory because the serializer method should've created it's own.
-                buffer = serializer.Serialize(message, default, false);
+                buffer = Serializer.Serialize(message, default, false);
                 size = buffer.Length;
 
                 // Request memory from the writer and copy the span to it
-                memory = writePipe.Writer.GetMemory(size);
+                memory = duplexMessageStream.GetWriteMemory(size);
                 buffer.CopyTo(memory.Span);
             }
 
@@ -326,127 +319,18 @@ namespace MessageStream
 
         #endregion
 
-        #region Read/Write Loops
+        #region Hooks
 
-        private async Task<bool> ReadLoopAsync()
-        {
-            var cancellationToken = readCancellationTokenSource.Token;
-            bool cleanStop = false;
+        protected virtual ValueTask ProcessIncomingBufferAsync(T message, ReadOnlySequence<byte> buffer) => new ValueTask();
 
-            try
-            {
-                while (!cancellationToken.IsCancellationRequested)
-                {
-                    // Request a block of memory from the readPipe's Writer
-                    var memory = readPipe.Writer.GetMemory(readerPipeOptions.MinimumSegmentSize);
-
-                    // Let the IReader read into the memory, returns how many bytes were actually read.
-                    int len = await reader.ReadAsync(memory, cancellationToken).ConfigureAwait(false);
-
-                    // If a reader returns len 0 then we should close the reader.
-                    if (len == 0)
-                    {
-                        Logger.Warn("Closing message stream because the reader returned 0 len.");
-                        break;
-                    }
-
-                    // Write the data into the Writer
-                    await readPipe.Writer.WriteAsync(memory.Slice(0, len), cancellationToken).ConfigureAwait(false);
-
-                    Interlocked.Add(ref _bytesRead, len);
-
-                    // Flush
-                    await readPipe.Writer.FlushAsync(cancellationToken).ConfigureAwait(false);
-                }
-            }
-            catch (Exception ex)
-            {
-                cleanStop = cancellationToken.IsCancellationRequested;
-                Logger.Error(ex, $"Error in message stream read loop. Expected: {cleanStop}.");
-                readException = ex;
-            }
-
-            readCancellationTokenSource.Cancel();
-            readPipe.Writer.Complete();
-
-            return cleanStop;
-        }
-
-        private async Task<bool> WriteLoopAsync()
-        {
-            var cancellationToken = writeCancellationTokenSource.Token;
-            bool cleanStop = false;
-
-            try
-            {
-                while (!cancellationToken.IsCancellationRequested)
-                {
-                    // Read from the writePipe's Reader pipe
-                    ReadResult result = await writePipe.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
-
-                    // Write each buffer
-                    long bytes = 0;
-                    foreach (var buffer in result.Buffer)
-                    {
-                        await writer.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
-                        bytes += buffer.Length;
-                    }
-
-                    // Complete the write
-                    writePipe.Reader.AdvanceTo(result.Buffer.End);
-
-                    Interlocked.Add(ref _bytesWritten, bytes);
-
-                    // Flush the rest of the data, then close.
-                    if (result.IsCompleted)
-                    {
-                        break;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                cleanStop = cancellationToken.IsCancellationRequested;
-
-                if (!cleanStop)
-                {
-                    Logger.Error(ex, "Error in message stream write loop.");
-                    writeException = ex;
-                    writeCancellationTokenSource.Cancel();
-                }
-
-                writePipe.Reader.Complete();
-            }
-
-            return cleanStop;
-        }
+        protected virtual ValueTask ProcessOutgoingBufferAsync(T message, Memory<byte> buffer) => new ValueTask();
 
         #endregion
 
-        #region Virtual methods
-
-        /// <summary>
-        /// Optionally processes an incoming buffer and it's associated message. The provided ReadOnlySequence is JUST the messages data,
-        /// This allows consumers to provide their own way of allocating memory for processing.
-        /// 
-        /// Useful for journaling incoming data or something like that.
-        /// </summary>
-        protected virtual ValueTask ProcessIncomingBufferAsync(T message, ReadOnlySequence<byte> buffer)
+        public override string ToString()
         {
-            return new ValueTask();
+            return $"{{ hashCode={this.GetHashCode()}, readStats={ReadStats}, writeStats={WriteStats} }}";
         }
-
-        /// <summary>
-        /// Optionally processes an outgoing buffer and it's associated message.
-        /// 
-        /// Useful for journaling outgoing data or something like that.
-        /// </summary>
-        protected virtual ValueTask ProcessOutgoingBufferAsync(T message, Memory<byte> buffer)
-        {
-            return new ValueTask();
-        }
-
-        #endregion
 
     }
 }

@@ -1,4 +1,6 @@
+using MessageStream.DuplexMessageStream;
 using MessageStream.IO;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
@@ -16,10 +18,9 @@ namespace MessageStream.Tests.Simple
             var writeStream = new MemoryStream();
 
             var messageStream = new MessageStream<SimpleMessage>(
-                    new MessageStreamReader(readStream),
                     new SimpleMessageDeserializer(),
-                    new MessageStreamWriter(writeStream),
-                    new SimpleMessageSerializer()
+                    new SimpleMessageSerializer(),
+                    new StreamDuplexMessageStream(readStream, writeStream)
                 );
 
             await messageStream.OpenAsync().ConfigureAwait(false);
@@ -39,31 +40,36 @@ namespace MessageStream.Tests.Simple
             await messageStream.CloseAsync().ConfigureAwait(false);
 
             // Reset the streams position so we can read in the messages
-            writeStream.Position = 0;
-            writeStream.CopyTo(readStream);
+            readStream = new MemoryStream(writeStream.ToArray());
             readStream.Position = 0;
+            writeStream = new MemoryStream();
+
+            messageStream = new MessageStream<SimpleMessage>(
+                    new SimpleMessageDeserializer(),
+                    new SimpleMessageSerializer(),
+                    new StreamDuplexMessageStream(readStream, writeStream)
+                );
 
             var receivedMessages = new List<SimpleMessage>();
             var closedTcs = new TaskCompletionSource<bool>();
 
             var eventedMessageStream = new EventMessageStream<SimpleMessage>
             (
-                    new MessageStreamReader(readStream),
                     new SimpleMessageDeserializer(),
-                    new MessageStreamWriter(writeStream),
                     new SimpleMessageSerializer(),
+                    new StreamDuplexMessageStream(readStream, writeStream),
                     message =>
                     {
                         receivedMessages.Add(message);
                         return new ValueTask<bool>();
                     },
-                    (ex, expected) => // The stream will close because the memory stream will run out of data so ignore results
-                    {
-                        closedTcs.TrySetResult(true);
-                        return new ValueTask();
-                    },
                     () => // ignore keep alive.
                     {
+                        return new ValueTask();
+                    },
+                    (ex) => // The stream will close because the memory stream will run out of data so ignore results
+                    {
+                        closedTcs.TrySetResult(true);
                         return new ValueTask();
                     }
             );
@@ -74,7 +80,14 @@ namespace MessageStream.Tests.Simple
 
             Assert.Equal(2, receivedMessages.Count);
 
-            await eventedMessageStream.CloseAsync().ConfigureAwait(false);
+            try
+            {
+                await eventedMessageStream.CloseAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // ignore, the EOF will have closed it.
+            }
         }
 
     }

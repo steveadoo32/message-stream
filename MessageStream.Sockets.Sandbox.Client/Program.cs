@@ -12,11 +12,11 @@ namespace MessageStream.Sockets.Sandbox.Client
     {
 
         private static int globalMessageId = 0;
-        private static TimeSpan RequestTimeout = TimeSpan.FromSeconds(30);
+        private static TimeSpan RequestTimeout = TimeSpan.FromSeconds(10);
 
         static void Main(string[] args)
         {
-            string ip = "172.16.40.228";
+            string ip = "127.0.0.1";
             if (args.Length > 0)
             {
                 ip = args[0];
@@ -32,7 +32,7 @@ namespace MessageStream.Sockets.Sandbox.Client
 
             NLog.LogManager.Configuration = config;
 
-            const int port = 4353;
+            const int port = 9031;
 
             Console.WriteLine("Press enter to proceed to client connection.");
             Console.ReadLine();
@@ -104,7 +104,7 @@ namespace MessageStream.Sockets.Sandbox.Client
 
         }
 
-        private static bool ShouldRetryMessage(SimpleMessage message, MessageWriteRequestResult<SimpleMessage> result, Exception exception)
+        private static bool ShouldRetryMessage(SimpleMessage message, MessageWriteRequestResult<SimpleMessage> result)
         {
             bool retry = result.Error || result.Result.Error || result.IsCompleted || result.Result.IsCompleted;
             if (retry)

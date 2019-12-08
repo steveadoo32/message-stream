@@ -1,5 +1,4 @@
 ﻿using MessageStream;
-using MessageStream.IO;
 using MessageStream.Message;
 using System;
 using System.Buffers;
@@ -25,12 +24,7 @@ namespace MessageStream
 
 
         public delegate ValueTask<bool> HandleMessageAsync(T message);
-
-        /// <summary>
-        /// Called when disconnections happen on the reader. This will close the stream.
-        /// </summary>
-        public delegate ValueTask HandleDisconnectionAsync(Exception ex, bool expected);
-
+        
         public delegate ValueTask HandleKeepAliveAsync();
 
         private static ChannelOptions CreateDefaultReaderChannelOptions(int numReaders)
@@ -44,31 +38,18 @@ namespace MessageStream
                     SingleWriter = true
                 };
             }
+
             // let concurrent message stream decide
             return null;
         }
 
+        private readonly EventMessageStreamOptions eventOptions;
         private readonly HandleMessageAsync handleMessageDelegate;
-        private readonly HandleDisconnectionAsync handleDisconnectionDelegate;
         private readonly HandleKeepAliveAsync handleKeepAliveDelegate;
+        private CancellationTokenSource closeCts;
 
-        private List<Task> readTasks;
-        private CancellationTokenSource closedCts;
-        private Task keepAliveTask;
-        private bool closing = false;
-        private TaskCompletionSource<bool> outerCloseTcs;
-        private long _messagesRead;
-
-        private SemaphoreSlim outerCloseSemaphore;
-
-        public int NumReaders { get; }
-
-        public bool HandleMessagesAsynchronously { get; }
-
-        public TimeSpan KeepAliveTimeSpan { get; }
-
-        public long EventChannelMessagesRead => _messagesRead;
-
+        private List<Task> readerTasks;
+        private Task<Task> keepAliveTask;
 
         /// <summary>
         /// </summary>
@@ -83,183 +64,94 @@ namespace MessageStream
         /// </param>
         /// <param name="keepAliveTimeSpan">How long until we wait until we invoke the keep alive delegate. Default is 30 seconds.</param>
         public EventMessageStream(
-            IReader reader,
             IMessageDeserializer<T> deserializer,
-            IWriter writer,
             IMessageSerializer<T> serializer,
-            RequestResponseKeyResolver<T> rpcKeyResolver,
+            IDuplexMessageStream duplexMessageStream,
             HandleMessageAsync handleMessageDelegate,
-            HandleDisconnectionAsync handleDisconnectionDelegate,
             HandleKeepAliveAsync handleKeepAliveDelegate,
-            int numReaders = 1,
-            bool handleMessagesAsynchronously = false,
-            TimeSpan? keepAliveTimeSpan = null,
-            PipeOptions readerPipeOptions = null,
-            PipeOptions writerPipeOptions = null,
-            TimeSpan? writerCloseTimeout = null,
-            ChannelOptions readerChannelOptions = null,
-            ChannelOptions writerChannelOptions = null,
-            TimeSpan? readerFlushTimeout = null)
-            : base(reader, deserializer, writer, serializer, rpcKeyResolver, readerPipeOptions, writerPipeOptions, writerCloseTimeout, readerChannelOptions ?? CreateDefaultReaderChannelOptions(numReaders), writerChannelOptions, readerFlushTimeout)
+            UnexpectedCloseDelegateAsync unexpectedCloseDelegate,
+            EventMessageStreamOptions options = null,
+            RequestResponseKeyResolver<T> rpcKeyResolver = null)
+            : base(deserializer, serializer, duplexMessageStream, unexpectedCloseDelegate, options ?? new EventMessageStreamOptions(), rpcKeyResolver)
         {
+            this.eventOptions = this.options as EventMessageStreamOptions;
             this.handleMessageDelegate = handleMessageDelegate;
-            this.handleDisconnectionDelegate = handleDisconnectionDelegate;
-            this.handleKeepAliveDelegate = handleKeepAliveDelegate;
-
-            NumReaders = numReaders;
-            HandleMessagesAsynchronously = handleMessagesAsynchronously;
-            KeepAliveTimeSpan = keepAliveTimeSpan ?? TimeSpan.FromSeconds(30);
+            this.handleKeepAliveDelegate = handleKeepAliveDelegate;            
         }
-
-        /// <summary>
-        /// </summary>
-        /// <param name="handleMessageDelegate">Handles messages</param>
-        /// <param name="handleDisconnectionDelegate">Called when there is a problem with the reader. The stream will be closed before this is called.</param>
-        /// <param name="handleKeepAliveDelegate">Useful if you need to keep writing data every xxx seconds</param>
-        /// <param name="numReaders">How many tasks to spawn to read from the channel</param>
-        /// <param name="handleMessagesAsynchronously">
-        /// Set this to true if you are using a bounded reader channel and you call WriteRequestAsync inside of your handleMessageDelegate.
-        /// If you leave it false, you can run into a situation where your reader channel is being throttled, so the responses for WriteRequest will never come back,
-        /// which will cause even more blocking on the whole read pipeline.
-        /// </param>
-        /// <param name="keepAliveTimeSpan">How long until we wait until we invoke the keep alive delegate. Default is 30 seconds.</param>
-        public EventMessageStream(
-            IReader reader,
-            IMessageDeserializer<T> deserializer,
-            IWriter writer,
-            IMessageSerializer<T> serializer,
-            HandleMessageAsync handleMessageDelegate,
-            HandleDisconnectionAsync handleDisconnectionDelegate,
-            HandleKeepAliveAsync handleKeepAliveDelegate,
-            int numReaders = 1,
-            bool handleMessagesAsynchronously = false,
-            TimeSpan? keepAliveTimeSpan = null,
-            PipeOptions readerPipeOptions = null,
-            PipeOptions writerPipeOptions = null,
-            TimeSpan? writerCloseTimeout = null,
-            ChannelOptions readerChannelOptions = null,
-            ChannelOptions writerChannelOptions = null,
-            TimeSpan? readerFlushTimeout = null)
-            : this(reader, deserializer, writer, serializer, null, handleMessageDelegate, handleDisconnectionDelegate, handleKeepAliveDelegate, numReaders, handleMessagesAsynchronously, keepAliveTimeSpan, readerPipeOptions, writerPipeOptions, writerCloseTimeout, readerChannelOptions, writerChannelOptions, readerFlushTimeout)
-        {
-        }
+        
 
         /// <summary>
         /// Starts this message stream on your reader/writers.
         /// You have to open them yourself
         /// </summary>
         /// <returns></returns>
-        public override async Task OpenAsync()
+        public override async Task OpenAsync(CancellationToken cancellationToken = default)
         {
-            _messagesRead = 0;
-            closing = false;
-            outerCloseTcs = new TaskCompletionSource<bool>(TaskContinuationOptions.RunContinuationsAsynchronously);
-
-            // Let the underlying message stream infrastructure startup.
-            await base.OpenAsync().ConfigureAwait(false);
-
-            outerCloseSemaphore = new SemaphoreSlim(1, 1);
-            closedCts = new CancellationTokenSource();
-
-            // Start the read tasks
-            readTasks = new List<Task>(NumReaders);
-
-            for (int i = 0; i < NumReaders; i++)
+            if (Open)
             {
-                readTasks.Add(Task.Factory.StartNew(obj => OuterReadLoopAsync((OuterReadState)obj), new OuterReadState
+                throw new MessageStreamOpenException("MessageStream already open.");
+            }
+            
+            // Open underlying stream
+            await base.OpenAsync(cancellationToken).ConfigureAwait(false);
+            
+            closeCts = new CancellationTokenSource();
+            readerTasks = new List<Task>(eventOptions.NumberReaders);
+
+            for (int i = 0; i < eventOptions.NumberReaders; i++)
+            {
+                int capturedId = i;
+                readerTasks.Add(eventOptions.EventLoopTaskFactory.StartNew(obj => OuterReadLoopAsync((OuterReadState)obj), new OuterReadState
                 {
-                    stream = this
-                }, closedCts.Token).Unwrap());
+                    stream = this,
+                    id = capturedId
+                }, eventOptions.EventLoopTaskCreationOptions).Unwrap().ContinueWith(result => Logger.Info($"EventMessageStream ReadLoop {capturedId} completed. TaskCompleted = {result.IsCompleted}.")));
             }
 
             // Start the keep alive task
-            keepAliveTask = Task.Run(KeepAliveAsync);
+            if (eventOptions.KeepAliveInterval.HasValue)
+            {
+                keepAliveTask = eventOptions.KeepAliveTaskFactory.StartNew(KeepAliveAsync, eventOptions.KeepAliveTaskCreationOptions);
+            }
         }
 
         public override async Task CloseAsync()
         {
-            if (!Open || closing)
+            if (!Open)
             {
-                return;
+                throw new MessageStreamOpenException("MessageStream is not open.");
             }
 
-            closing = true;
-            await InnerCloseAsync().ConfigureAwait(false);
-        }
-
-        protected virtual async Task InnerCloseAsync()
-        {
-            // Shut down keep alive task.
-            closedCts.Cancel(false);
-
-            // Ignore keep alive error.
-            try
-            {
-                await keepAliveTask.ConfigureAwait(false);
-            }
-            catch
-            {
-                // can ignore. if disconnect gets called from keepalive this could happen.
-            }
-
-            keepAliveTask = null;
-
-            await base.CloseAsync().ConfigureAwait(false);
-
-            await Task.WhenAll(readTasks.Select(t =>
-            {
-                return t.ContinueWith(readTask =>
-                {
-                    if (readTask.IsFaulted)
-                    {
-                        Logger.Warn(readTask.Exception, "Error shutting down read task. Ignoring.");
-                    }
-                });
-            })).ConfigureAwait(false);
-
-            await outerCloseTcs.Task.ConfigureAwait(false);
-            closing = false;
-        }
-
-        private async Task OuterCloseAsync(Exception exception)
-        {
-            bool wasClosing = closing;
-            try
-            {
-                await outerCloseSemaphore.WaitAsync().ConfigureAwait(false);
-
-                // One of the other read tasks already closed us, so return.
-                if (outerCloseTcs.Task.IsCompleted)
-                {
-                    return;
-                }
-
-                // If we called CloseAsync, then we dont need to call it again.
-                if (!wasClosing)
-                {
-                    await TryCloseAsync().ConfigureAwait(false);
-                }
-
-                await handleDisconnectionDelegate(exception, wasClosing);
-
-                outerCloseTcs.TrySetResult(wasClosing);
-                outerCloseSemaphore.Dispose();
-            }
-            catch
-            {
-                // the outer close semaphore could be disposed, so this handles that.
-            }
-        }
-
-        private async Task TryCloseAsync()
-        {
             try
             {
                 await base.CloseAsync().ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                Logger.Error(ex, "Error closing message stream.");
+                Logger.Error(ex, "Error closing underlying message stream.");
+            }
+
+            // Wait for channel clean up tasks to finish
+            var readersCompleteTask = Task.WhenAll(readerTasks);
+            if (eventOptions.ReaderCloseTimeout.HasValue)
+            {
+                await Task.WhenAny(Task.Delay(eventOptions.ReaderCloseTimeout.Value), readersCompleteTask).ConfigureAwait(false);
+                // Force the readers to complete.
+                if (!readersCompleteTask.IsCompleted)
+                {
+                    Logger.Warn($"Reader Tasks were not completed within {eventOptions.ReaderCloseTimeout}. Forcing closed.");
+                }
+            }
+            else
+            {
+                await Task.WhenAny(readersCompleteTask).ConfigureAwait(false);
+            }
+
+            closeCts.Cancel();
+
+            if (keepAliveTask != null)
+            {
+                await keepAliveTask.ConfigureAwait(false);
             }
         }
 
@@ -269,12 +161,10 @@ namespace MessageStream
         /// </summary>
         private async Task OuterReadLoopAsync(OuterReadState state)
         {
-            while (true)
+            while (!closeCts.IsCancellationRequested)
             {
                 state.result = await state.stream.ReadAsync().ConfigureAwait(false);
-
-                Interlocked.Increment(ref _messagesRead);
-
+                
                 // Check that result isn't null. If it is we have a message we couldn't read.
                 if (state.result.ReadResult)
                 {
@@ -282,7 +172,7 @@ namespace MessageStream
                     {
                         state.handleTask = state.stream.handleMessageDelegate(state.result.Result);
 
-                        if (!state.stream.HandleMessagesAsynchronously)
+                        if (!state.stream.eventOptions.HandleMessagesOffEventLoop)
                         {
                             await state.handleTask.ConfigureAwait(false);
                         }
@@ -304,13 +194,9 @@ namespace MessageStream
                     }
                 }
 
-                if (state.result.IsCompleted || state.result.Error)
+                // No more data
+                if (state.result.IsCompleted)
                 {
-                    // We have to run this in an async task becuase CloseAsync blocks on the read tasks
-                    // so we could end up in a deadlock.
-                    Logger.Error($"Closing stream because we are errored or completed. {{ error={state.result.Error}, completed={state.result.IsCompleted} }}");
-                    _ = Task.Factory.StartNew(async obj => await (obj as OuterReadState).stream.OuterCloseAsync((obj as OuterReadState).result.Exception), state, TaskCreationOptions.DenyChildAttach);
-
                     break;
                 }
             }
@@ -318,18 +204,18 @@ namespace MessageStream
 
         private async Task KeepAliveAsync()
         {
-            while (!closedCts.Token.IsCancellationRequested)
+            while (Open && !closeCts.Token.IsCancellationRequested)
             {
                 try
                 {
-                    await Task.Delay(KeepAliveTimeSpan, closedCts.Token).ConfigureAwait(false);
+                    await Task.Delay(eventOptions.KeepAliveInterval.Value, closeCts.Token).ConfigureAwait(false);
 
-                    if (closedCts.Token.IsCancellationRequested)
+                    if (closeCts.Token.IsCancellationRequested)
                     {
                         break;
                     }
 
-                    await Task.Run(() => handleKeepAliveDelegate(), closedCts.Token).ConfigureAwait(false);
+                    await eventOptions.KeepAliveTaskFactory.StartNew(() => handleKeepAliveDelegate(), closeCts.Token, eventOptions.KeepAliveTaskCreationOptions, eventOptions.KeepAliveTaskFactory.Scheduler ?? TaskScheduler.Default).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -345,6 +231,7 @@ namespace MessageStream
         private class OuterReadState
         {
 
+            public int id;
             public EventMessageStream<T> stream;
             public MessageReadResult<T> result;
             public ValueTask<bool> handleTask;

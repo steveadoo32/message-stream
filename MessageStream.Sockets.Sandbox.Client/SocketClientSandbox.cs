@@ -41,16 +41,13 @@ namespace MessageStream.Sockets.Sandbox
                 TimeSpan.FromSeconds(10),
                 TimeSpan.FromSeconds(2),
                 3,
-                disconnectionEvent => new EventSocketMessageStream<SimpleMessage>(
-                    config,
+                disconnectionEvent => new EventMessageStream<SimpleMessage>(
                     Deserializer,
                     Serializer,
-                    null,
+                    new SocketDuplexMessageStreamWrapper(config),
                     HandleClientMessage,
-                    disconnectionEvent,
                     HandleClientKeepAlive,
-                    1,
-                    true
+                    disconnectionEvent
                 ),
                 async stream =>
                 {
@@ -78,7 +75,14 @@ namespace MessageStream.Sockets.Sandbox
 
         public async Task StopAsync()
         {
-            await clientStream.CloseAsync().ConfigureAwait(false);
+            try
+            {
+                await clientStream.CloseAsync().ConfigureAwait(false);
+            }
+            catch(Exception ex)
+            {
+                // can happen is closing an errored stream.
+            }
         }
 
         async ValueTask<bool> HandleClientMessage(SimpleMessage message)
@@ -88,7 +92,7 @@ namespace MessageStream.Sockets.Sandbox
             return true;
         }
 
-        ValueTask HandleClientDisconnection(Exception ex, bool expected)
+        ValueTask HandleClientDisconnection(Exception ex)
         {
             Logger.Info($"Client disconnected");
             return new ValueTask();
