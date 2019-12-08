@@ -16,6 +16,17 @@ namespace MessageStream.Sockets.Server
 
         private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
+        public static EventMessageStreamOptions DefaultClientMessageStreamOptions => new EventMessageStreamOptions
+        {
+            EventLoopTaskCreationOptions = TaskCreationOptions.None,
+            EventTaskCreationOptions = TaskCreationOptions.None,
+            ReadChannelTaskOptions = TaskCreationOptions.None,
+            WriteChannelTaskOptions = TaskCreationOptions.None,
+            HandleMessagesOffEventLoop = true,
+            NumberReaders = 1,
+            KeepAliveInterval = null
+        };
+
         /// <summary>
         /// Called when disconnections happen on the reader. This will close the stream for you.
         /// </summary>
@@ -37,14 +48,13 @@ namespace MessageStream.Sockets.Server
 
         private readonly IMessageDeserializer<TMessage> deserializer;
         private readonly IMessageSerializer<TMessage> serializer;
+        private readonly EventMessageStreamOptions clientMessageStreamOptions;
         private readonly RequestResponseKeyResolver<TMessage> rpcKeyResolver;
         private readonly ConnectionStateProvider connectionStateProvider;
         private readonly HandleConnectionAsync handleConnectionDelegate;
         private readonly HandleConnectionMessageAsync handleConnectionMessageDelegate;
         private readonly HandleConnectionDisconnectionAsync handleConnectionDisconnectionDelegate;
         private readonly HandleConnectionKeepAliveAsync handleConnectionKeepAliveDelegate;
-
-        private readonly TimeSpan? keepAliveTimeSpan;
 
         private Socket socketListener;
 
@@ -66,7 +76,7 @@ namespace MessageStream.Sockets.Server
             HandleConnectionMessageAsync handleMessageDelegate,
             HandleConnectionDisconnectionAsync handleConnectionDisconnectionDelegate,
             HandleConnectionKeepAliveAsync handleKeepAliveDelegate,
-            TimeSpan? keepAliveTimeSpan = null
+            EventMessageStreamOptions clientMessageStreamOptions
         )
         {
             this.deserializer = deserializer;
@@ -76,19 +86,19 @@ namespace MessageStream.Sockets.Server
             this.handleConnectionMessageDelegate = handleMessageDelegate;
             this.handleConnectionDisconnectionDelegate = handleConnectionDisconnectionDelegate;
             this.handleConnectionKeepAliveDelegate = handleKeepAliveDelegate;
-            this.keepAliveTimeSpan = keepAliveTimeSpan;
+            this.clientMessageStreamOptions = clientMessageStreamOptions ?? DefaultClientMessageStreamOptions;
         }
 
         public SocketServer(
             IMessageDeserializer<TMessage> deserializer,
             IMessageSerializer<TMessage> serializer,
-            RequestResponseKeyResolver<TMessage> rpcKeyResolver, 
+            RequestResponseKeyResolver<TMessage> rpcKeyResolver,
             ConnectionStateProvider connectionStateProvider,
             HandleConnectionAsync handleConnectionDelegate,
             HandleConnectionMessageAsync handleMessageDelegate,
             HandleConnectionDisconnectionAsync handleConnectionDisconnectionDelegate,
             HandleConnectionKeepAliveAsync handleKeepAliveDelegate,
-            TimeSpan? keepAliveTimeSpan = null
+            EventMessageStreamOptions clientMessageStreamOptions = null
         )
         {
             this.deserializer = deserializer;
@@ -99,7 +109,7 @@ namespace MessageStream.Sockets.Server
             this.handleConnectionMessageDelegate = handleMessageDelegate;
             this.handleConnectionDisconnectionDelegate = handleConnectionDisconnectionDelegate;
             this.handleConnectionKeepAliveDelegate = handleKeepAliveDelegate;
-            this.keepAliveTimeSpan = keepAliveTimeSpan;
+            this.clientMessageStreamOptions = clientMessageStreamOptions ?? DefaultClientMessageStreamOptions;
         }
 
         public Task ListenAsync(int port, int tcpMaxPendingConnections = 1000, int maxPendingConnections = 50)
@@ -219,7 +229,7 @@ namespace MessageStream.Sockets.Server
                         msg => HandleMessagAsync(connection, msg),
                         () => HandleKeepAliveAsync(connection),
                         (ex) => HandleConnectionDisconnectAsync(connection, ex, false),
-                        null,
+                        clientMessageStreamOptions,
                         rpcKeyResolver
                     );
 
@@ -334,25 +344,25 @@ namespace MessageStream.Sockets.Server
             /// into a queue that are written later. If you would like to wait for an actual result on the write,
             /// use WriteAndWaitAsync
             /// </summary>
-            public ValueTask<MessageWriteResult> WriteAsync(TMessage message)
+            public ValueTask<MessageWriteResult> WriteAsync(TMessage message, bool flush = true)
             {
-                return MessageStream.WriteAsync(message);
+                return MessageStream.WriteAsync(message, flush);
             }
 
             /// <summary>
             /// Writes the message and waits until it's actually been written to the pipe. Slower than WriteAsync
             /// </summary>
-            public ValueTask<MessageWriteResult> WriteAndWaitAsync(TMessage message)
+            public ValueTask<MessageWriteResult> WriteAndWaitAsync(TMessage message, bool flush = true)
             {
-                return MessageStream.WriteAndWaitAsync(message);
+                return MessageStream.WriteAndWaitAsync(message, flush);
             }
 
             /// <summary>
             /// Writes a message and waits for a specific message to come back.
             /// </summary>
-            public Task<MessageWriteRequestResult<TReply>> WriteRequestAsync<TReply>(TMessage message, TimeSpan timeout = default) where TReply : TMessage
+            public Task<MessageWriteRequestResult<TReply>> WriteRequestAsync<TReply>(TMessage message, TimeSpan timeout = default, bool flush = true) where TReply : TMessage
             {
-                return MessageStream.WriteRequestAsync<TReply>(message, timeout);
+                return MessageStream.WriteRequestAsync<TReply>(message, timeout, flush);
             }
 
         }

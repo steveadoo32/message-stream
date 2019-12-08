@@ -605,7 +605,7 @@ namespace MessageStream
                 {
                     while (true)
                     {
-                        if (!currResultRequestHandled && result.ReadResult)
+                        if (!currResultRequestHandled && result.ReadResult && result.Result != null) // how?
                         {
                             var responseKey = result.Result is IResponse response ? response.GetKey() : rpcKeyResolver?.GetKey(result.Result);
                             MessageWriteRequestResult requestResult = default;
