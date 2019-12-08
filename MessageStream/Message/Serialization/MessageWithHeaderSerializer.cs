@@ -54,7 +54,7 @@ namespace MessageStream.Message
             this.serializers = serializers.ToDictionary(serializer => serializer.Identifier);
         }
 
-        public bool TryCalculateMessageSize(T message, out int size)
+        public virtual bool TryCalculateMessageSize(T message, out int size)
         {
             var serializer = GetSerializer(message);
 

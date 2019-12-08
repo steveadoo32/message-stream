@@ -20,8 +20,8 @@ namespace MessageStream.Sockets.Server
         {
             EventLoopTaskCreationOptions = TaskCreationOptions.None,
             EventTaskCreationOptions = TaskCreationOptions.None,
-            ReadChannelTaskOptions = TaskCreationOptions.None,
-            WriteChannelTaskOptions = TaskCreationOptions.None,
+            ReadChannelTaskOptions = TaskCreationOptions.LongRunning,
+            WriteChannelTaskOptions = TaskCreationOptions.LongRunning,
             HandleMessagesOffEventLoop = true,
             NumberReaders = 1,
             KeepAliveInterval = null

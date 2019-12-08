@@ -27,11 +27,24 @@ namespace MessageStream.Message
         [DeserializationStage(100)]
         public T Deserialize(in ReadOnlySpan<byte> buffer, THeader header)
         {
-            var message = messageBodyDeserializer.Deserialize(buffer, header, GetMessageIdentifier(header));
+            if (OverrideDeserialize(in buffer, header, out var message))
+            {
+                return message;
+            }
 
+            message = messageBodyDeserializer.Deserialize(in buffer, header, GetMessageIdentifier(header));
             PostProcessMessage(header, ref message);
-
             return message;
+        }
+
+        /// <summary>
+        /// Called after the header and body have been deserialized.
+        /// Generally used to set the header on a header property on the actual message.
+        /// </summary>
+        protected virtual bool OverrideDeserialize(in ReadOnlySpan<byte> buffer, THeader header, out T message) 
+        {
+            message = default;
+            return false;
         }
 
         /// <summary>

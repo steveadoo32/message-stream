@@ -29,7 +29,7 @@ namespace MessageStream.ProtoBuf
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void WriteString(this in Span<byte> buffer, ref int index, string str)
         {
-            for(int i = 0; i < str.Length; i++)
+            for(int i = 0; i < (str?.Length ?? 0); i++)
             {
                 buffer[index++] = (byte) str[i];
             }
