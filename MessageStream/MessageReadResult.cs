@@ -30,6 +30,8 @@ namespace MessageStream
         /// </summary>
         public bool ReadResult { get; internal set; }
 
+        public bool IsEmpty { get; internal set; }
+
         public DateTime ReceivedTimeUtc { get; internal set; }
 
         public DateTime ParsedTimeUtc { get; internal set; }

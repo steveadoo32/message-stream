@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>netcoreapp3.0</TargetFramework>
-    <LangVersion>7.2</LangVersion>
+    <LangVersion>8.0</LangVersion>
     <Version>1.1.0</Version>
     <PackageId>message-stream.Sockets</PackageId>
     <Authors>MMSP</Authors>

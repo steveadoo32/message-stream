@@ -23,7 +23,9 @@ namespace MessageStream
 
         protected readonly MessageStreamOptions options;
 
+        private readonly MemoryPool<MessageReadResult<T>> batchReadPool;
         private readonly IDuplexMessageStream duplexMessageStream;
+
         private CancellationTokenSource closeCts;
 
         protected IMessageDeserializer<T> Deserializer { get; private set; }
@@ -45,13 +47,15 @@ namespace MessageStream
             IMessageDeserializer<T> deserializer,
             IMessageSerializer<T> serializer,
             IDuplexMessageStream duplexMessageStream,
-            MessageStreamOptions options = null
+            MessageStreamOptions options = null,
+            MemoryPool<MessageReadResult<T>> batchReadPool = null
         )
         {
             this.Deserializer = deserializer;
             this.Serializer = serializer;
             this.duplexMessageStream = duplexMessageStream;
             this.options = options ?? new MessageStreamOptions();
+            this.batchReadPool = batchReadPool ?? MemoryPool<MessageReadResult<T>>.Shared;
         }
 
         #region Open/Close
@@ -160,7 +164,7 @@ namespace MessageStream
 
                 // Track the time it took to parse
                 DateTime parsedTimeUtc = DateTime.UtcNow;
-                
+
                 if (!partialMessage)
                 {
                     // not sure how expensive this is
@@ -181,7 +185,7 @@ namespace MessageStream
                         Logger.Error(ex, "Error processing incoming message buffer.");
                     }
                 }
-                
+
                 if (!partialMessage)
                 {
 
@@ -217,7 +221,120 @@ namespace MessageStream
                 };
             }
         }
-        
+
+        /// <summary>
+        /// Reads up to batchSize messages in the next available buffer.
+        /// note: its not guaranteed that the buffer has batchSize messages in it.
+        /// </summary>
+        /// <param name="batchSize"></param>
+        /// <returns></returns>
+        public virtual async ValueTask<IMemoryOwner<MessageReadResult<T>>> ReadBatchAsync(int batchSize = 16)
+        {
+            DateTime timeReceived = DateTime.UtcNow;
+
+            // Try to read one full message.
+            var memory = batchReadPool.Rent(batchSize);
+            try
+            {
+                T message = default;
+                SequencePosition read = default;
+
+                var closeToken = closeCts?.Token ?? default;
+                ReadResult result = await duplexMessageStream.ReadAsync(closeToken).ConfigureAwait(false);
+                var buffer = result.Buffer;
+
+                int index = 0;
+                while (index < batchSize)
+                {
+                    if (!Deserializer.Deserialize(in buffer, out read, out message))
+                    {
+                        if (result.IsCompleted)
+                        {
+                            memory.Memory.Span[index] = new MessageReadResult<T>
+                            {
+                                // if the stream is completed, we can still try to read more messages, so we use the partialMessage field to indicate that.
+                                IsCompleted = result.IsCompleted,
+                                Error = false,
+                                Exception = null,
+                                Result = default,
+                                ReadResult = false,
+                                ReceivedTimeUtc = timeReceived,
+                                ParsedTimeUtc = DateTime.UtcNow
+                            };
+                        }
+                        break;
+                    }
+
+                    // not sure how expensive this is
+                    var slicedBuffer = buffer.Slice(buffer.Start, read);
+
+                    ReadStats.IncMessagesRead();
+                    ReadStats.IncrBytesRead(slicedBuffer.Length);
+
+                    try
+                    {
+                        ReadStats.IncMessagesIncomingBufferProcessing(1);
+                        await ProcessIncomingBufferAsync(message, slicedBuffer).ConfigureAwait(false);
+                        ReadStats.DecMessagesIncomingBufferProcessing(1);
+                    }
+                    catch (Exception ex)
+                    {
+                        ReadStats.DecMessagesIncomingBufferProcessing(1);
+                        Logger.Error(ex, "Error processing incoming message buffer.");
+                    }
+
+                    memory.Memory.Span[index] = new MessageReadResult<T>
+                    {
+                        // if the stream is completed, we can still try to read more messages, so we use the partialMessage field to indicate that.
+                        IsCompleted = result.IsCompleted,
+                        Error = false,
+                        Exception = null,
+                        Result = message,
+                        ReadResult = true,
+                        ReceivedTimeUtc = timeReceived,
+                        ParsedTimeUtc = DateTime.UtcNow
+                    };
+
+                    buffer = buffer.Slice(read);
+                    index++;
+                }
+
+                // Mark the rest as empty
+                for(int i = index; i < batchSize; i++)
+                {
+                    memory.Memory.Span[i] = new MessageReadResult<T>
+                    {
+                        IsEmpty = true
+                    };
+                }
+
+                // Track the time it took to parse
+                if (!result.IsCompleted)
+                {
+                    duplexMessageStream.AdvanceReaderTo(read);
+                }
+
+                return memory;
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "Error reading message from duplex message stream.");
+
+                memory.Memory.Span[0] = new MessageReadResult<T>
+                {
+                    IsCompleted = duplexMessageStream.ReadCompleted,
+                    Error = true,
+                    Exception = ex,
+                    Result = default,
+                    ReadResult = false,
+                    ReceivedTimeUtc = timeReceived,
+                    ParsedTimeUtc = DateTime.UtcNow
+                };
+
+                return memory;
+            }
+        }
+
         public virtual async ValueTask<MessageWriteResult> WriteAsync(T message, bool flush = true)
         {
             try

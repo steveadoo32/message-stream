@@ -600,52 +600,70 @@ namespace MessageStream
             try
             {
                 bool currResultRequestHandled = false;
-                MessageReadResult<T> result = await base.ReadAsync().ConfigureAwait(false);
+                var batch = await base.ReadBatchAsync().ConfigureAwait(false);
+                int index = 0;
                 while (readOuter && await writer.WaitToWriteAsync().ConfigureAwait(false))
                 {
                     while (true)
                     {
-                        if (!currResultRequestHandled && result.ReadResult && result.Result != null) // how?
+                        var result = batch.Memory.Span[index];
+
+                        if (!result.IsEmpty)
                         {
-                            var responseKey = result.Result is IResponse response ? response.GetKey() : rpcKeyResolver?.GetKey(result.Result);
-                            MessageWriteRequestResult requestResult = default;
-                            if (responseKey != null && requests.TryRemove(responseKey, out requestResult))
+                            if (!currResultRequestHandled && result.ReadResult) // how?
                             {
-                                requestResult.resultTcs.TrySetResult(result);
+                                var responseKey = result.Result is IResponse response ? response.GetKey() : rpcKeyResolver?.GetKey(result.Result);
+                                MessageWriteRequestResult requestResult = default;
+                                if (responseKey != null && requests.TryRemove(responseKey, out requestResult))
+                                {
+                                    requestResult.resultTcs.TrySetResult(result);
+                                }
                             }
+
+                            // Don't process this request logic again if we have to wait to write.
+                            currResultRequestHandled = true;
+
+                            // Try to write, if fails, we just wait to write this result again.
+                            if (result.ReadResult && !writer.TryWrite(result))
+                            {
+                                break;
+                            }
+
+                            ReadChannelStats.IncReadChannelMessagesSubmitted();
+
+                            if (result.IsCompleted)
+                            {
+                                readOuter = false;
+                                break;
+                            }
+
+                            if (result.Error)
+                            {
+                                readOuter = false;
+                                outerEx = result.Exception;
+                                break;
+                            }
+
+                            // Mark the next message to process request logic.
+                            currResultRequestHandled = false;
+
+                            // Read the next result
+                            index++;
                         }
 
-                        // Don't process this request logic again if we have to wait to write.
-                        currResultRequestHandled = true;
-
-                        // Try to write, if fails, we just wait to write this result again.
-                        if (result.ReadResult && !writer.TryWrite(result))
+                        if (index == batch.Memory.Length || result.IsEmpty)
                         {
-                            break;
+                            for(int i = 0; i < batch.Memory.Length; i++)
+                            {
+                                batch.Memory.Span[i] = default;
+                            }
+                            batch.Dispose();
+                            batch = await base.ReadBatchAsync().ConfigureAwait(false);
+                            index = 0;
                         }
-
-                        ReadChannelStats.IncReadChannelMessagesSubmitted();
-
-                        if (result.IsCompleted)
-                        {
-                            readOuter = false;
-                            break;
-                        }
-
-                        if (result.Error)
-                        {
-                            readOuter = false;
-                            outerEx = result.Exception;
-                            break;
-                        }
-
-                        // Mark the next message to process request logic.
-                        currResultRequestHandled = false;
-
-                        // Read the next result
-                        result = await base.ReadAsync().ConfigureAwait(false);
                     }
                 }
+                batch.Dispose();
             }
             catch (Exception ex)
             {

@@ -34,6 +34,8 @@ namespace MessageStream
 
         public int? WriteMessageCountFlushThreshold { get; set; } = 64;
 
+        public int ReadBatchSize { get; set; }
+
         public TimeSpan? ChannelCloseTimeout { get; set; } = TimeSpan.FromSeconds(10);
 
     }

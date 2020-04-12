@@ -18,12 +18,13 @@ namespace MessageStream.Sockets.Server
 
         public static EventMessageStreamOptions DefaultClientMessageStreamOptions => new EventMessageStreamOptions
         {
-            EventLoopTaskCreationOptions = TaskCreationOptions.None,
+            EventLoopTaskCreationOptions = TaskCreationOptions.LongRunning,
             EventTaskCreationOptions = TaskCreationOptions.None,
             ReadChannelTaskOptions = TaskCreationOptions.LongRunning,
             WriteChannelTaskOptions = TaskCreationOptions.LongRunning,
             HandleMessagesOffEventLoop = true,
             NumberReaders = 1,
+            ReadBatchSize = 64,
             KeepAliveInterval = null
         };
 
