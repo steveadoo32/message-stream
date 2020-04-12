@@ -715,10 +715,10 @@ namespace MessageStream
                                 requests.TryRemove(writeRequest.requestKey, out var _);
                                 writeRequest.resultTcs.TrySetResult(new MessageReadResult<T>
                                 {
-                                    Error = false,
+                                    Error = writeResult.Error,
                                     ReadResult = false,
                                     IsCompleted = false,
-                                    Exception = new DuplicateRequestException($"Duplicate request id {writeRequest.requestKey}"),
+                                    Exception = writeResult.Exception,
                                     ReceivedTimeUtc = DateTime.UtcNow,
                                     ParsedTimeUtc = DateTime.UtcNow
                                 });
