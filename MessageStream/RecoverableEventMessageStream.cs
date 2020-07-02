@@ -5,13 +5,12 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using MessageStream.Message;
+using Microsoft.Extensions.Logging;
 
 namespace MessageStream
 {
     public class RecoverableEventMessageStream<T>
     {
-
-        private static NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
         public delegate EventMessageStream<T> GetStream(UnexpectedCloseDelegateAsync unexpectedCloseDelegate);
 
@@ -103,7 +102,7 @@ namespace MessageStream
             // we have to run this off thread because we will block the old streams close method.
             Task.Run(async () =>
             {
-                Logger.Error(ex, "MessageStream errored. Attempting to recover...");
+                oldStream.Logger?.LogError(ex, "MessageStream errored. Attempting to recover...");
 
                 try
                 {
@@ -112,7 +111,7 @@ namespace MessageStream
                 }
                 catch (Exception closeEx)
                 {
-                    Logger.Error(closeEx, "Error closing old message stream");
+                    oldStream.Logger?.LogError(closeEx, "Error closing old message stream");
                 }
 
                 bool success = false;
@@ -134,7 +133,7 @@ namespace MessageStream
                     catch (Exception reconnectEx)
                     {
                         // We override the orig exception with the latest one
-                        Logger.Error(ex = reconnectEx, $"Error recovering message stream after {numReconnectAttempts} attempts.");
+                        oldStream.Logger?.LogError(ex = reconnectEx, $"Error recovering message stream after {numReconnectAttempts} attempts.");
                     }
                 }
 
@@ -147,11 +146,11 @@ namespace MessageStream
                         await closeDelegate(newStream).ConfigureAwait(false);
                         await Task.WhenAny(Task.Delay(oldStreamCloseTimeout), newStream.CloseAsync()).ConfigureAwait(false);
                         await unexpectedCloseDelegate(ex).ConfigureAwait(false);
-                        Logger.Warn($"Closed message stream after {numReconnectAttempts} reconnection attempts.");
+                        oldStream.Logger?.LogWarning($"Closed message stream after {numReconnectAttempts} reconnection attempts.");
                     }
                     catch (Exception closeEx)
                     {
-                        Logger.Error(closeEx, "Error closing new message stream.");
+                        oldStream.Logger?.LogError(closeEx, "Error closing new message stream.");
                     }
                 }
                 else
@@ -159,7 +158,7 @@ namespace MessageStream
                     ActiveStream = newStream;
                     streamRecoveredSignal.TrySetResult(newStream);
                     streamRecoveredSignal = new TaskCompletionSource<EventMessageStream<T>>(TaskCreationOptions.RunContinuationsAsynchronously);
-                    Logger.Info("MessageStream recovered.");
+                    newStream.Logger?.LogInformation("MessageStream recovered.");
                 }
             });
             return new ValueTask();

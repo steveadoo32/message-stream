@@ -1,5 +1,6 @@
 ﻿using MessageStream;
 using MessageStream.Message;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -19,9 +20,6 @@ namespace MessageStream
     /// <typeparam name="T"></typeparam>
     public class EventMessageStream<T> : ConcurrentMessageStream<T>
     {
-
-        private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
-
 
         public delegate ValueTask<bool> HandleMessageAsync(T message);
         
@@ -105,7 +103,7 @@ namespace MessageStream
                 {
                     stream = this,
                     id = capturedId
-                }, eventOptions.EventLoopTaskCreationOptions).Unwrap().ContinueWith(result => Logger.Info($"EventMessageStream ReadLoop {capturedId} completed. TaskCompleted = {result.IsCompleted}.")));
+                }, eventOptions.EventLoopTaskCreationOptions).Unwrap().ContinueWith(result => Logger?.LogDebug($"EventMessageStream ReadLoop {capturedId} completed. TaskCompleted = {result.IsCompleted}.")));
             }
 
             // Start the keep alive task
@@ -128,7 +126,7 @@ namespace MessageStream
             }
             catch (Exception ex)
             {
-                Logger.Error(ex, "Error closing underlying message stream.");
+                Logger?.LogError(ex, "Error closing underlying message stream.");
             }
 
             // Wait for channel clean up tasks to finish
@@ -139,7 +137,7 @@ namespace MessageStream
                 // Force the readers to complete.
                 if (!readersCompleteTask.IsCompleted)
                 {
-                    Logger.Warn($"Reader Tasks were not completed within {eventOptions.ReaderCloseTimeout}. Forcing closed.");
+                    Logger?.LogWarning($"Reader Tasks were not completed within {eventOptions.ReaderCloseTimeout}. Forcing closed.");
                 }
             }
             else
@@ -183,14 +181,14 @@ namespace MessageStream
                             {
                                 if (result.IsFaulted)
                                 {
-                                    Logger.Error(result.Exception, "Error handling message");
+                                    Logger?.LogError(result.Exception, "Error handling message");
                                 }
                             });
                         }
                     }
                     catch (Exception ex)
                     {
-                        Logger.Error(ex, "Error handling message");
+                        Logger?.LogError(ex, "Error handling message");
                     }
                 }
 
@@ -223,7 +221,7 @@ namespace MessageStream
                     {
                         continue;
                     }
-                    Logger.Error(ex, $"Error executing keep alive for message stream.");
+                    Logger?.LogError(ex, $"Error executing keep alive for message stream.");
                 }
             }
         }

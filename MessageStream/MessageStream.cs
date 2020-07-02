@@ -1,4 +1,5 @@
 ﻿using MessageStream.Message;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -19,8 +20,6 @@ namespace MessageStream
     public class MessageStream<T>
     {
 
-        private static NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
-
         protected readonly MessageStreamOptions options;
 
         private readonly IDuplexMessageStream duplexMessageStream;
@@ -37,6 +36,8 @@ namespace MessageStream
         public MessageStreamWriteStats WriteStats { get; } = new MessageStreamWriteStats();
 
         public string DuplexStreamStats => duplexMessageStream.StatsString;
+
+        public ILogger Logger { get; set; }
 
         /// <summary>
         /// </summary>
@@ -63,7 +64,7 @@ namespace MessageStream
                 throw new MessageStreamOpenException("MessageStream already open");
             }
 
-            Logger.Trace("Opening message stream.");
+            Logger?.LogTrace("Opening message stream.");
 
             closeCts = new CancellationTokenSource();
 
@@ -77,13 +78,13 @@ namespace MessageStream
             catch (Exception ex)
             {
                 Cleanup();
-                Logger.Error(ex, "Error opening message stream.");
+                Logger?.LogError(ex, "Error opening message stream.");
                 throw new MessageStreamOpenException("Error opening duplex message stream", ex);
             }
 
             Open = true;
 
-            Logger.Trace("Opened message stream.");
+            Logger?.LogTrace("Opened message stream.");
         }
 
         public virtual async Task CloseAsync()
@@ -93,7 +94,7 @@ namespace MessageStream
                 throw new MessageStreamCloseException("MessageStream already closed.");
             }
 
-            Logger.Info("Closing message stream.");
+            Logger?.LogInformation("Closing message stream.");
 
             closeCts.Cancel();
 
@@ -103,7 +104,7 @@ namespace MessageStream
             }
             catch (Exception ex)
             {
-                Logger.Error(ex, "Error message stream.");
+                Logger?.LogError(ex, "Error message stream.");
 
                 throw new MessageStreamOpenException("Error closing duplex message stream", ex);
             }
@@ -111,7 +112,7 @@ namespace MessageStream
             {
                 Cleanup();
                 Open = false;
-                Logger.Info("Closed message stream.");
+                Logger?.LogInformation("Closed message stream.");
             }
         }
 
@@ -178,7 +179,7 @@ namespace MessageStream
                     catch (Exception ex)
                     {
                         ReadStats.DecMessagesIncomingBufferProcessing(1);
-                        Logger.Error(ex, "Error processing incoming message buffer.");
+                        Logger?.LogError(ex, "Error processing incoming message buffer.");
                     }
                 }
                 
@@ -203,7 +204,7 @@ namespace MessageStream
             }
             catch (Exception ex)
             {
-                Logger.Error(ex, "Error reading message from duplex message stream.");
+                Logger?.LogError(ex, "Error reading message from duplex message stream.");
 
                 return new MessageReadResult<T>
                 {
@@ -232,7 +233,7 @@ namespace MessageStream
                 }
                 catch (Exception ex)
                 {
-                    Logger.Error(ex, "Error processing outgoing message buffer.");
+                    Logger?.LogError(ex, "Error processing outgoing message buffer.");
                 }
 
                 WriteStats.DecMessagesOutgoingBufferProcessing(1);
@@ -261,7 +262,7 @@ namespace MessageStream
             }
             catch (Exception ex)
             {
-                Logger.Error(ex, "Error writing message to duplex message stream.");
+                Logger?.LogError(ex, "Error writing message to duplex message stream.");
 
                 WriteStats.DecMessagesWriting(1);
 

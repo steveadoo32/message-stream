@@ -1,5 +1,4 @@
-﻿using NLog;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -12,18 +11,6 @@ namespace MessageStream.Sockets.Sandbox
     {
         static void Main(string[] args)
         {
-            var config = new NLog.Config.LoggingConfiguration();
-
-            var logfile = new NLog.Targets.FileTarget("logfile") { FileName = "file.txt" };
-            var logconsole = new NLog.Targets.ConsoleTarget("logconsole");
-            var logdebug = new NLog.Targets.DebuggerTarget("logdebugger");
-
-            config.AddRule(LogLevel.Trace, LogLevel.Fatal, logdebug);
-            config.AddRule(LogLevel.Trace, LogLevel.Fatal, logconsole);
-            config.AddRule(LogLevel.Debug, LogLevel.Fatal, logfile);
-
-            NLog.LogManager.Configuration = config;
-
             const int port = 9031;
 
             var serverSandbox = new SocketServerSandbox(port);

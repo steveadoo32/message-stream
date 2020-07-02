@@ -12,8 +12,6 @@ namespace MessageStream.Sockets.Sandbox
     public class SocketServerSandbox
     {
 
-        private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
-
         public static readonly SimpleMessageDeserializer Deserializer = new SimpleMessageDeserializer();
         public static readonly SimpleMessageSerializer Serializer = new SimpleMessageSerializer();
 
@@ -59,7 +57,7 @@ namespace MessageStream.Sockets.Sandbox
 
         async ValueTask HandleConnection(SocketServer<object, SimpleMessage>.Connection connection)
         {
-            Logger.Info($"Client connected to server: {connection.Id}");
+            //Logger.Info($"Client connected to server: {connection.Id}");
         }
 
         private Random random = new Random();
@@ -73,7 +71,7 @@ namespace MessageStream.Sockets.Sandbox
             }
             if (messageId % 50000 == 0)
             {
-                Logger.Info($"Messages received: {messagesReceived}. Messages/s: {messagesReceived / stopwatch.Elapsed.TotalSeconds}");
+               // Logger.Info($"Messages received: {messagesReceived}. Messages/s: {messagesReceived / stopwatch.Elapsed.TotalSeconds}");
             }
 
             // if messages are being handled synchronously in the event message stream this can deadlock!
@@ -84,7 +82,7 @@ namespace MessageStream.Sockets.Sandbox
 
             if (DebugReceived)
             {
-                Logger.Info($"Received message id {message.Id}");
+                //Logger.Info($"Received message id {message.Id}");
             }
 
             if (!message.DontReply)
@@ -97,7 +95,7 @@ namespace MessageStream.Sockets.Sandbox
 
                 if (DebugReceived)
                 {
-                    Logger.Info($"Replied for message id {message.Id}");
+                   // Logger.Info($"Replied for message id {message.Id}");
                 }
             }
 
@@ -106,7 +104,7 @@ namespace MessageStream.Sockets.Sandbox
 
         ValueTask HandleServerDisconnection(SocketServer<object, SimpleMessage>.Connection connection, Exception ex, bool expected)
         {
-            Logger.Info($"Client disconnected from server: {connection.Id}:{expected}. {ex}");
+            //Logger.Info($"Client disconnected from server: {connection.Id}:{expected}. {ex}");
             return new ValueTask();
         }
 

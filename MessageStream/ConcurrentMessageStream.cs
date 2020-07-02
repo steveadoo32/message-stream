@@ -1,4 +1,5 @@
 ﻿using MessageStream.Message;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -15,8 +16,6 @@ namespace MessageStream
 
     public class ConcurrentMessageStream<T> : MessageStream<T>
     {
-
-        private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
         private readonly UnexpectedCloseDelegateAsync unexpectedCloseDelegateAsync;
         protected readonly ConcurrentMessageStreamOptions concurrentOptions;
@@ -121,7 +120,7 @@ namespace MessageStream
                 throw new MessageStreamOpenException("MessageStream is not open.");
             }
 
-            Logger.Info("Closing concurrent message stream.");
+            Logger?.LogInformation("Closing concurrent message stream.");
 
             // Prevent new writes and prevents us from closing the stream a second time if the completion cleanup tasks get run
             closing = true;
@@ -133,13 +132,13 @@ namespace MessageStream
             }
             catch (Exception ex)
             {
-                Logger.Error(ex, "Error closing underlying message stream.");
+                Logger?.LogError(ex, "Error closing underlying message stream.");
 
                 // Try to force close channels.
                 CompleteChannels();
             }
 
-            Logger.Trace("Closed underlying stream.");
+            Logger?.LogTrace("Closed underlying stream.");
 
             // Complete our channels
             var channelsCompletionTask = Task.WhenAll(readChannel.Reader.Completion.ContinueWith(r => r.IsCompletedSuccessfully), writeChannel.Reader.Completion.ContinueWith(r => r.IsCompletedSuccessfully));
@@ -149,7 +148,7 @@ namespace MessageStream
                 // Force the channels to complete.
                 if (!channelsCompletionTask.IsCompleted)
                 {
-                    Logger.Warn($"Channels completion tasks were not completed within {concurrentOptions.ChannelCloseTimeout}");
+                    Logger?.LogWarning($"Channels completion tasks were not completed within {concurrentOptions.ChannelCloseTimeout}");
                     CompleteChannels();
                 }
             }
@@ -158,7 +157,7 @@ namespace MessageStream
                 await Task.WhenAny(channelsCompletionTask).ConfigureAwait(false);
             }
 
-            Logger.Trace("Completed channels.");
+            Logger?.LogTrace("Completed channels.");
 
             // Wait for channel clean up tasks to finish
             var channelsCleanupTask = Task.WhenAll(readChannelCleanupTask.ContinueWith(r => r.IsCompletedSuccessfully), writeChannelCleanupTask.ContinueWith(r => r.IsCompletedSuccessfully));
@@ -167,7 +166,7 @@ namespace MessageStream
                 await Task.WhenAny(Task.Delay(concurrentOptions.ChannelCloseTimeout.Value), channelsCleanupTask).ConfigureAwait(false);
                 if (!channelsCleanupTask.IsCompleted)
                 {
-                    Logger.Warn($"Channels clean up tasks were not completed within {concurrentOptions.ChannelCloseTimeout}");
+                    Logger?.LogWarning($"Channels clean up tasks were not completed within {concurrentOptions.ChannelCloseTimeout}");
                 }
             }
             else
@@ -175,11 +174,11 @@ namespace MessageStream
                 await Task.WhenAny(channelsCompletionTask).ConfigureAwait(false);
             }
 
-            Logger.Trace("Completed channel cleanup.");
+            Logger?.LogTrace("Completed channel cleanup.");
 
             Cleanup();
 
-            Logger.Info("Closed concurrent message stream.");
+            Logger?.LogInformation("Closed concurrent message stream.");
         }
 
         private async Task ReadChannelCompleteAsync(Task completionTask)
@@ -212,7 +211,7 @@ namespace MessageStream
                 return Task.CompletedTask;
             }
 
-            Logger.Error(completionTask.Exception, "MessageStream closed unexpectedly");
+            Logger?.LogError(completionTask.Exception, "MessageStream closed unexpectedly");
 
             return Task.Run(CloseAsync).ContinueWith(result => NotifyClosedAsync(completionTask.Exception), TaskContinuationOptions.RunContinuationsAsynchronously);
         }
@@ -651,14 +650,14 @@ namespace MessageStream
             {
                 // Complete error
                 outerEx = ex;
-                Logger.Error(ex, "Error in ConcurrentMessageStream read loop.");
+                Logger?.LogError(ex, "Error in ConcurrentMessageStream read loop.");
             }
 
             writer.TryComplete(outerEx);
             // we want to close the write channel too.
             writeChannel.Writer.TryComplete(outerEx);
 
-            Logger.Info("Concurrent message stream read channel loop completed.");
+            Logger?.LogInformation("Concurrent message stream read channel loop completed.");
         }
 
         private async Task WriteLoopAsync()
@@ -760,7 +759,7 @@ namespace MessageStream
                         catch (Exception ex)
                         {
                             readOuter = false;
-                            Logger.Error(ex, "Error writing message in concurrent message stream.");
+                            Logger?.LogError(ex, "Error writing message in concurrent message stream.");
                             outerEx = ex;
                             break;
                         }
@@ -776,7 +775,7 @@ namespace MessageStream
             catch (Exception ex)
             {
                 // we dont want anymore messages at this point
-                Logger.Error(ex, "Error in concurrent message stream write loop.");
+                Logger?.LogError(ex, "Error in concurrent message stream write loop.");
                 outerEx = ex;
             }
 
@@ -798,7 +797,7 @@ namespace MessageStream
             // we want to close the read channel too.
             readChannel.Writer.TryComplete(outerEx);
 
-            Logger.Info("Concurrent message stream write channel loop completed.");
+            Logger?.LogInformation("Concurrent message stream write channel loop completed.");
         }
 
 

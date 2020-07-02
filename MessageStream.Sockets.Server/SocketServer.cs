@@ -8,13 +8,12 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Linq;
 using MessageStream.DuplexMessageStream;
+using Microsoft.Extensions.Logging;
 
 namespace MessageStream.Sockets.Server
 {
     public class SocketServer<TConnectionState, TMessage>
     {
-
-        private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
         public static EventMessageStreamOptions DefaultClientMessageStreamOptions => new EventMessageStreamOptions
         {
@@ -46,6 +45,7 @@ namespace MessageStream.Sockets.Server
 
         public delegate ValueTask HandleConnectionKeepAliveAsync(Connection connection);
 
+        private readonly ILogger<SocketServer<TConnectionState, TMessage>> logger;
         private readonly IMessageDeserializer<TMessage> deserializer;
         private readonly IMessageSerializer<TMessage> serializer;
         private readonly EventMessageStreamOptions clientMessageStreamOptions;
@@ -76,7 +76,8 @@ namespace MessageStream.Sockets.Server
             HandleConnectionMessageAsync handleMessageDelegate,
             HandleConnectionDisconnectionAsync handleConnectionDisconnectionDelegate,
             HandleConnectionKeepAliveAsync handleKeepAliveDelegate,
-            EventMessageStreamOptions clientMessageStreamOptions = null
+            EventMessageStreamOptions clientMessageStreamOptions = null,
+            ILogger<SocketServer<TConnectionState, TMessage>> logger = null
         )
         {
             this.deserializer = deserializer;
@@ -87,6 +88,7 @@ namespace MessageStream.Sockets.Server
             this.handleConnectionDisconnectionDelegate = handleConnectionDisconnectionDelegate;
             this.handleConnectionKeepAliveDelegate = handleKeepAliveDelegate;
             this.clientMessageStreamOptions = clientMessageStreamOptions ?? DefaultClientMessageStreamOptions;
+            this.logger = logger;
         }
 
         public SocketServer(
@@ -98,7 +100,8 @@ namespace MessageStream.Sockets.Server
             HandleConnectionMessageAsync handleMessageDelegate,
             HandleConnectionDisconnectionAsync handleConnectionDisconnectionDelegate,
             HandleConnectionKeepAliveAsync handleKeepAliveDelegate,
-            EventMessageStreamOptions clientMessageStreamOptions = null
+            EventMessageStreamOptions clientMessageStreamOptions = null,
+            ILogger<SocketServer<TConnectionState, TMessage>> logger = null
         )
         {
             this.deserializer = deserializer;
@@ -110,12 +113,13 @@ namespace MessageStream.Sockets.Server
             this.handleConnectionDisconnectionDelegate = handleConnectionDisconnectionDelegate;
             this.handleConnectionKeepAliveDelegate = handleKeepAliveDelegate;
             this.clientMessageStreamOptions = clientMessageStreamOptions ?? DefaultClientMessageStreamOptions;
+            this.logger = logger;
         }
 
         public Task ListenAsync(int port, int tcpMaxPendingConnections = 1000, int maxPendingConnections = 50)
         {
             // TODO do we want to be able to listen on multiple ports? we should support that.
-            Logger.Info($"Starting socket server...");
+            logger?.LogInformation($"Starting socket server...");
 
             pendingConnectionLock = new SemaphoreSlim(maxPendingConnections);
 
@@ -129,7 +133,7 @@ namespace MessageStream.Sockets.Server
             socketListener.Bind(localEndPoint);
             socketListener.Listen(tcpMaxPendingConnections);
 
-            Logger.Info($"Listening on {port} {{ tcpMaxPendingConnections={tcpMaxPendingConnections}, maxPendingConnections={maxPendingConnections} }}.");
+            logger?.LogInformation($"Listening on {port} {{ tcpMaxPendingConnections={tcpMaxPendingConnections}, maxPendingConnections={maxPendingConnections} }}.");
 
             acceptCts = new CancellationTokenSource();
 
@@ -137,9 +141,9 @@ namespace MessageStream.Sockets.Server
             // AcceptAsync doesnt support a cancellation token so we have to cancel the outer task.
             acceptTask = Task.Run(AcceptLoopAsync, acceptCts.Token); // TODO can you run this on multiple threads?
 
-            Logger.Debug($"Accept loop started.");
+            logger?.LogDebug($"Accept loop started.");
 
-            Logger.Info($"Socket server started.");
+            logger?.LogInformation($"Socket server started.");
 
             return Task.CompletedTask;
         }
@@ -152,14 +156,14 @@ namespace MessageStream.Sockets.Server
             }
             catch (Exception ex)
             {
-                Logger.Error(ex, "Error shutting down accept loop.");
+                logger?.LogError(ex, "Error shutting down accept loop.");
             }
 
             socketListener.Close();
             connections.Clear();
             pendingConnectionLock.Dispose();
 
-            Logger.Info("Shutdown server.");
+            logger?.LogInformation("Shutdown server.");
         }
 
         public bool TryGetConnection(int connectionId, out Connection connection)
@@ -186,15 +190,15 @@ namespace MessageStream.Sockets.Server
         {
             try
             {
-                Logger.Info($"Closing connection {{ connectionId={connection.Id}, expected={expected}, reason={ex?.Message ?? "none"} }}.");
+                logger?.LogInformation($"Closing connection {{ connectionId={connection.Id}, expected={expected}, reason={ex?.Message ?? "none"} }}.");
 
                 await handleConnectionDisconnectionDelegate(connection, ex, expected).ConfigureAwait(false);
 
-                Logger.Info($"Closed connection {{ connectionId={connection.Id}, expected={expected}, reason={ex?.Message ?? "none"} }}.");
+                logger?.LogInformation($"Closed connection {{ connectionId={connection.Id}, expected={expected}, reason={ex?.Message ?? "none"} }}.");
             }
             catch (Exception dcEx)
             {
-                Logger.Error(dcEx, $"Error disconnecting connection {{ connectionId={connection.Id} }}");
+                logger?.LogError(dcEx, $"Error disconnecting connection {{ connectionId={connection.Id} }}");
             }
 
             connections.TryRemove(connection.Id, out var con);
@@ -219,7 +223,7 @@ namespace MessageStream.Sockets.Server
                     int connectionId = Math.Abs(Interlocked.Increment(ref connectionIdCounter));
                     var connection = new Connection(connectionId, socket, this);
 
-                    Logger.Info($"Connection accepted {{ connectionId={connectionId} }}.");
+                    logger?.LogInformation($"Connection accepted {{ connectionId={connectionId} }}.");
 
                     // We have a socket, setup the message stream
                     var messageStream = new EventMessageStream<TMessage>(
@@ -240,7 +244,7 @@ namespace MessageStream.Sockets.Server
                     {
                         // TODO handle this. Shouldn't ever happen, but we should just disconnect the client.
                         var dcTask = connection.DisconnectAsync();
-                        Logger.Warn($"Could not add connection to connection list. Disconnected connection. {{ connectionId={connectionId} }}.");
+                        logger?.LogWarning($"Could not add connection to connection list. Disconnected connection. {{ connectionId={connectionId} }}.");
                         continue;
                     }
 
@@ -248,11 +252,11 @@ namespace MessageStream.Sockets.Server
                     {
                         await messageStream.OpenAsync().ConfigureAwait(false);
 
-                        Logger.Debug($"message-stream initialized. {{ connectionId={connectionId} }}");
+                        logger?.LogDebug($"message-stream initialized. {{ connectionId={connectionId} }}");
                     }
                     catch (Exception ex)
                     {
-                        Logger.Error(ex, $"Error initializing message-stream. {{ connectionId={connectionId} }}.");
+                        logger?.LogError(ex, $"Error initializing message-stream. {{ connectionId={connectionId} }}.");
                         var dcTask = connection.DisconnectAsync();
                         connections.TryRemove(connectionId, out var con);
                         continue;
@@ -265,11 +269,11 @@ namespace MessageStream.Sockets.Server
                         {
                             await handleConnectionDelegate(connection).ConfigureAwait(false);
 
-                            Logger.Debug($"Connection initialized {{ connectionId={connectionId} }}.");
+                            logger?.LogDebug($"Connection initialized {{ connectionId={connectionId} }}.");
                         } 
                         catch (Exception ex)
                         {
-                            Logger.Error(ex, $"Error initializing connection. Disconnecting. {{ connectionId={connectionId} }}");
+                            logger?.LogError(ex, $"Error initializing connection. Disconnecting. {{ connectionId={connectionId} }}");
                             var dcTask = connection.DisconnectAsync();
                             connections.TryRemove(connectionId, out var con);
                         }
@@ -282,12 +286,12 @@ namespace MessageStream.Sockets.Server
                 }
                 catch (Exception ex)
                 {
-                    Logger.Error(ex, "Exception in accept loop.");
+                    logger?.LogError(ex, "Exception in accept loop.");
 
                     bool close = await HandleAcceptExceptionAsync(ex).ConfigureAwait(false);
                     if (close)
                     {
-                        Logger.Info("Closing accept loop because of exception.");
+                        logger?.LogInformation("Closing accept loop because of exception.");
                         break;
                     }
                 }
@@ -321,7 +325,7 @@ namespace MessageStream.Sockets.Server
 
             internal SocketServer<TConnectionState, TMessage> SocketServer { get; }
 
-            internal EventMessageStream<TMessage> MessageStream { get; set; }
+            public EventMessageStream<TMessage> MessageStream { get; set; }
 
             public async Task DisconnectAsync()
             {
@@ -333,7 +337,7 @@ namespace MessageStream.Sockets.Server
                 }
                 catch (Exception ex)
                 {
-                    Logger.Error(ex, "Error closing connection message stream.");
+                    SocketServer.logger?.LogError(ex, "Error closing connection message stream.");
                 }
 
                 await SocketServer.HandleConnectionDisconnectAsync(this, null, true).ConfigureAwait(false);
