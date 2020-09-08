@@ -356,9 +356,9 @@ namespace MessageStream.Sockets.Server
             /// <summary>
             /// Writes the message and waits until it's actually been written to the pipe. Slower than WriteAsync
             /// </summary>
-            public ValueTask<MessageWriteResult> WriteAndWaitAsync(TMessage message, bool flush = true)
+            public ValueTask<MessageWriteResult> ConfirmWriteAsync(TMessage message, bool flush = true)
             {
-                return MessageStream.WriteAndWaitAsync(message, flush);
+                return MessageStream.ConfirmWriteAsync(message, flush);
             }
 
             /// <summary>

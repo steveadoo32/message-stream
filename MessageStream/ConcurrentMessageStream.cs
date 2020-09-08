@@ -389,7 +389,7 @@ namespace MessageStream
         /// <summary>
         /// Writes the message and waits until it's actually been written to the pipe. Slower than WriteAsync
         /// </summary>
-        public async ValueTask<MessageWriteResult> WriteAndWaitAsync(T message, bool flush = true)
+        public async ValueTask<MessageWriteResult> ConfirmWriteAsync(T message, bool flush = true)
         {
             if (!Open || closing)
             {
@@ -813,13 +813,13 @@ namespace MessageStream
             public string requestKey;
 
             public MessageWriteRequest(T message,
-                TaskCompletionSource<MessageWriteResult> tcs,
+                TaskCompletionSource<MessageWriteResult> writeTcs,
                 TaskCompletionSource<MessageReadResult<T>> resultTcs,
                 bool flush,
                 string requestKey) : this()
             {
                 this.message = message;
-                this.writeTcs = tcs;
+                this.writeTcs = writeTcs;
                 this.resultTcs = resultTcs;
                 this.flush = flush;
                 this.requestKey = requestKey;
