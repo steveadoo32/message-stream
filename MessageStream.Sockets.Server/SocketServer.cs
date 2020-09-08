@@ -188,6 +188,8 @@ namespace MessageStream.Sockets.Server
 
         private async ValueTask HandleConnectionDisconnectAsync(Connection connection, Exception ex, bool expected)
         {
+            connections.TryRemove(connection.Id, out var con);
+
             try
             {
                 logger?.LogInformation($"Closing connection {{ connectionId={connection.Id}, expected={expected}, reason={ex?.Message ?? "none"} }}.");
@@ -201,7 +203,6 @@ namespace MessageStream.Sockets.Server
                 logger?.LogError(dcEx, $"Error disconnecting connection {{ connectionId={connection.Id} }}");
             }
 
-            connections.TryRemove(connection.Id, out var con);
         }
 
         private ValueTask<bool> HandleMessagAsync(Connection connection, TMessage msg)
