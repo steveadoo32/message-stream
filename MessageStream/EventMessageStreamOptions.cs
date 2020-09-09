@@ -23,10 +23,10 @@ namespace MessageStream
 
         public TaskCreationOptions KeepAliveTaskCreationOptions { get; set; } = TaskCreationOptions.None;
 
-        public TimeSpan? KeepAliveInterval { get; set; }
+        public TimeSpan? KeepAliveInterval { get; set; } = null;
 
         public int NumberReaders { get; set; } = 1;
 
-        public TimeSpan? ReaderCloseTimeout { get; set; } = TimeSpan.FromSeconds(10);
+        public TimeSpan? ReaderCloseTimeout { get; set; } = null;
     }
 }

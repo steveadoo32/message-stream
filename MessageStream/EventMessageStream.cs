@@ -49,6 +49,8 @@ namespace MessageStream
         private List<Task> readerTasks;
         private Task<Task> keepAliveTask;
 
+        public new EventMessageStreamOptions Options => eventOptions;
+
         /// <summary>
         /// </summary>
         /// <param name="handleMessageDelegate">Handles messages</param>

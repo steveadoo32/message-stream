@@ -39,6 +39,8 @@ namespace MessageStream
 
         public ILogger Logger { get; set; }
 
+        public MessageStreamOptions Options => options;
+
         /// <summary>
         /// </summary>
         /// <param name="writerCloseTimeout">How long should we wait for the writer to finish writing data before closing</param>

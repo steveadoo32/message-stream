@@ -40,6 +40,8 @@ namespace MessageStream
 
         public ConcurrentMessageStreamChannelStats WriteChannelStats { get; } = new ConcurrentMessageStreamChannelStats();
 
+        public new ConcurrentMessageStreamOptions Options => concurrentOptions;
+
         public ConcurrentMessageStream(
             IMessageDeserializer<T> deserializer,
             IMessageSerializer<T> serializer,

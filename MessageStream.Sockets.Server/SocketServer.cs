@@ -139,7 +139,7 @@ namespace MessageStream.Sockets.Server
 
             // Pass the token to the wrapper task,
             // AcceptAsync doesnt support a cancellation token so we have to cancel the outer task.
-            acceptTask = Task.Run(AcceptLoopAsync, acceptCts.Token); // TODO can you run this on multiple threads?
+            acceptTask = Task.Factory.StartNew(AcceptLoopAsync, acceptCts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 
             logger?.LogDebug($"Accept loop started.");
 
@@ -152,14 +152,44 @@ namespace MessageStream.Sockets.Server
         {
             try
             {
-                await acceptTask.ConfigureAwait(false);
+                // Cancel accepting new connections
+                acceptCts.Cancel();
+
+                // Close all connections
+                foreach (var connection in connections.Values)
+                {
+                    try
+                    {
+                        var messageStream = connection.MessageStream;
+
+                        // hacky, but if we are shutting application down Task.Delays wont run.
+                        if (Environment.HasShutdownStarted)
+                        {
+                            // todo use -1 to signal to not wait at all?
+                            messageStream.Options.ChannelCloseTimeout = null;
+                            messageStream.Options.ReaderCloseTimeout = null;
+                        }
+
+                        await connection.DisconnectAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        logger?.LogError(ex, $"Error shutting down connection. {{ connectionId={connection.Id} }}");
+                    }
+                }
+
+                // Close the server
+                // if acceptasync is blocking this will cancel it
+                socketListener.Close();
+
+                // Wait for that to complete
+                await acceptTask;
             }
             catch (Exception ex)
             {
                 logger?.LogError(ex, "Error shutting down accept loop.");
             }
 
-            socketListener.Close();
             connections.Clear();
             pendingConnectionLock.Dispose();
 
@@ -219,6 +249,11 @@ namespace MessageStream.Sockets.Server
                 try
                 {
                     var socket = await socketListener.AcceptAsync().ConfigureAwait(false);
+
+                    if (acceptCts.IsCancellationRequested)
+                    {
+                        return;
+                    }
 
                     // use Math.abs to fix overflows if they ever happen.
                     int connectionId = Math.Abs(Interlocked.Increment(ref connectionIdCounter));
@@ -301,7 +336,7 @@ namespace MessageStream.Sockets.Server
 
         protected virtual async Task<bool> HandleAcceptExceptionAsync(Exception ex)
         {
-            return false;
+            return ex is System.Net.Sockets.SocketException socketEx;
         }
 
         #endregion
